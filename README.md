@@ -149,8 +149,6 @@ bb plugin install path:$PWD --yes
 **Requirements**
 
 - bb **0.44+** (Plugin SDK 0.5.29+)
-- The repository is private for now, so a git install needs GitHub
-  credentials with access to it on the installing machine.
 
 ## Where to find it
 
