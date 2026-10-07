@@ -4,6 +4,38 @@ All notable changes to Souls are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- **Import agent file** on the Souls page: use a public GitHub file URL, upload
+  or paste Codex TOML, Markdown with YAML frontmatter, or JSON/JSONC profiles.
+  Supports common Claude Code, Cursor, Copilot, Gemini CLI, Qwen Code, OpenCode
+  and Kiro agent definitions. Multi-agent configurations show an agent selector
+  before the editable preview; only explicit Create soul saves the chosen draft.
+  Format detection can be overridden, and filenames supply missing names.
+  GitHub downloads are bounded and restricted to the raw file host without
+  redirects or credentials. Instructions are preserved verbatim; model
+  preferences are advisory. Runtime settings and referenced files are never
+  loaded or executed. Invalid syntax, duplicate keys, YAML aliases and oversized
+  input report errors; unavailable definitions in collections produce warnings.
+
+### Changed
+
+- Redesigned the Souls library with scannable portrait cards, job/expertise search,
+  usage filtering, name/recent sorting and a more readable profile. The title-bar
+  New soul chooser consolidates creation methods; comparison and deletion use
+  explicit dialogs. Container-responsive layouts support narrow BB panes and
+  mobile drill-down with preserved search/scroll and keyboard focus. Loading,
+  missing links and unavailable usage are distinct from empty results.
+- Import review now uses separate Upload, Paste and GitHub tabs, a drag-and-drop
+  file card, searchable agent cards with instruction previews, and a focused
+  review editor. Optional details and import notes are collapsible; navigation
+  keeps unsaved edits. Scrollable bodies keep actions visible on desktop and
+  BB's native mobile bottom sheets.
+- Voice and temperament now accepts up to 32,000 characters so imported agent
+  instructions longer than the former 2,000-character limit are not cut.
+
 ## 0.1.0 - 2026-10-06
 
 ### Added

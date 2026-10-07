@@ -26,6 +26,9 @@ import {
 } from "./eval.ts";
 import { z } from "zod";
 import {
+  MAX_AGENT_IMPORT_LENGTH,
+  MAX_AGENTS_PER_IMPORT,
+  AGENT_IMPORT_FORMATS,
   changedFields,
   describeModelPin,
   renderAttachedPersona,
@@ -46,6 +49,16 @@ import {
 } from "./shared.ts";
 import { ChildSoulQueueFull, createSoulStore, SoulNameTaken } from "./store.ts";
 import { ACTIVITIES, activityForItem, type Activity } from "./motion.ts";
+import { importAgentFile } from "./soul-import-formats.ts";
+import { importGithubAgentFile } from "./soul-import-github.ts";
+
+const agentImportOutputSchema = z.object({
+  agents: z.array(z.object({
+    draft: soulDraftSchema,
+    warnings: z.array(z.string()),
+    sourceName: z.string().optional(),
+  })).min(1).max(MAX_AGENTS_PER_IMPORT),
+});
 
 const nullableSummary = soulSummarySchema.nullable();
 
@@ -85,6 +98,18 @@ export const rpcContract = defineRpcContract({
   souls_get: {
     input: z.object({ idOrName: z.string().min(1) }),
     output: z.object({ soul: soulSchema.nullable() }),
+  },
+  souls_import_preview: {
+    input: z.object({
+      source: z.string().min(1).max(MAX_AGENT_IMPORT_LENGTH),
+      filename: z.string().max(255).default(""),
+      format: z.enum(AGENT_IMPORT_FORMATS).default("auto"),
+    }),
+    output: agentImportOutputSchema,
+  },
+  souls_import_github: {
+    input: z.object({ url: z.string().min(1).max(2048), format: z.enum(AGENT_IMPORT_FORMATS).default("auto") }),
+    output: agentImportOutputSchema,
   },
   souls_create: {
     input: z.object({
@@ -810,6 +835,8 @@ export default async function plugin(bb: BbPluginApi) {
   bb.rpc.register(rpcContract, {
     souls_list: () => ({ souls: store.list().map((soul) => toSummary(soul)) }),
     souls_get: ({ idOrName }) => ({ soul: store.find(idOrName) }),
+    souls_import_preview: ({ source, filename, format }) => importAgentFile(source, filename, format),
+    souls_import_github: ({ url, format }) => importGithubAgentFile(url, globalThis.fetch, format),
     souls_create: ({ draft, origin }) => {
       const soul = store.insert(draft, origin);
       changed();

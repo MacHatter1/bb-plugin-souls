@@ -17,6 +17,15 @@ export const SOUL_ID_PREFIX = "soul_";
  */
 export const INSTRUCTION_BUDGET = 3800;
 
+/** Full imported agent prompts live in the voice field, never silently cut. */
+export const PERSONALITY_MAX_LENGTH = 32_000;
+
+/** Bounds agent parsing work; uploads and downloads also check bytes. */
+export const MAX_AGENT_IMPORT_LENGTH = 128_000;
+export const MAX_AGENTS_PER_IMPORT = 50;
+export const AGENT_IMPORT_FORMATS = ["auto", "toml", "markdown", "json"] as const;
+export type AgentImportFormat = typeof AGENT_IMPORT_FORMATS[number];
+
 /** The chat embed an agent posts once it has loaded its persona: `::soul{id="…"}`. */
 export const SOUL_DIRECTIVE = "soul";
 
@@ -63,7 +72,7 @@ export const soulDraftSchema = z.object({
   /** The job: what this soul is for, in one sentence. */
   role: z.string().max(240).default(""),
   /** Voice and temperament, as prose. */
-  personality: z.string().max(2000).default(""),
+  personality: z.string().max(PERSONALITY_MAX_LENGTH).default(""),
   expertise: list(12, 60).default([]),
   /** What it always does — working style and standards. */
   principles: list(12, 200).default([]),
@@ -108,7 +117,7 @@ export const soulPatchSchema = z
     tagline: z.string().max(160).optional(),
     emoji: z.string().min(1).max(8).optional(),
     role: z.string().max(240).optional(),
-    personality: z.string().max(2000).optional(),
+    personality: z.string().max(PERSONALITY_MAX_LENGTH).optional(),
     expertise: list(12, 60).optional(),
     principles: list(12, 200).optional(),
     boundaries: list(12, 200).optional(),

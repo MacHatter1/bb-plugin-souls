@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { INSTRUCTION_BUDGET, renderSoulInstructions, renderSoulPersona, soulDirective, soulSchema } from "./shared.ts";
+import { INSTRUCTION_BUDGET, PERSONALITY_MAX_LENGTH, renderSoulInstructions, renderSoulPersona, soulDirective, soulSchema } from "./shared.ts";
 
 const soul = (patch = {}) => soulSchema.parse({
   id: "soul_test", name: "Marshal", origin: "manual", createdAt: "", updatedAt: "",
@@ -12,7 +12,7 @@ const soul = (patch = {}) => soulSchema.parse({
 
 const longest = () => soul({
   name: "n".repeat(60), emoji: "✨", tagline: "t".repeat(160), role: "j".repeat(240),
-  personality: "v".repeat(2000), expertise: Array.from({ length: 12 }, (_, i) => `${i}`.padEnd(60, "e")),
+  personality: "v".repeat(PERSONALITY_MAX_LENGTH), expertise: Array.from({ length: 12 }, (_, i) => `${i}`.padEnd(60, "e")),
   principles: Array.from({ length: 12 }, (_, i) => `Always ${i} `.padEnd(200, "a")),
   boundaries: Array.from({ length: 12 }, (_, i) => `Never ${i} `.padEnd(200, "b")),
   model: { providerId: "p".repeat(80), model: "m".repeat(200), reasoningLevel: "r".repeat(40) },

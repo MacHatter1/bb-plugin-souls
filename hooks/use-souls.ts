@@ -2,7 +2,11 @@
 // the server's "souls-changed" signal (which fires for writes from this page,
 // another window, `bb souls`, or an agent tool).
 import { useCallback, useEffect, useRef, useState } from "react";
-import { experimental_useSidebarThreads, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
+import {
+  experimental_useSidebarThreads,
+  useRealtime,
+  useRpc,
+} from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../server";
 import { moodFor, type Activity, type Mood } from "../motion";
 import type { Soul, SoulSummary, ThreadSoulState } from "../shared";
@@ -16,29 +20,42 @@ function message(cause: unknown): string {
  * through a ref, so a thread switch in the same pane never filters on the
  * old thread id, whether or not the host re-subscribes on a new handler.
  */
-export function useSignal(channel: string, handler: (payload: unknown) => void): void {
+export function useSignal(
+  channel: string,
+  handler: (payload: unknown) => void,
+): void {
   const latest = useRef(handler);
   latest.current = handler;
   const stable = useCallback((payload: unknown) => latest.current(payload), []);
   useRealtime(channel, stable);
 }
 
-/** The whole soul library, as summaries. */
+/** The whole library; late reads cannot overwrite a newer signal or unmounted surface. */
 export function useSouls() {
   const rpc = useRpc<typeof rpcContract>();
   const [souls, setSouls] = useState<SoulSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const ticket = useRef(0);
   const refetch = useCallback(() => {
+    const mine = ++ticket.current;
+    setError(null);
     rpc.call("souls_list").then(
       (result) => {
-        setSouls(result.souls);
-        setError(null);
+        if (mine === ticket.current) {
+          setSouls(result.souls);
+          setError(null);
+        }
       },
-      (cause) => setError(message(cause)),
+      (cause) => {
+        if (mine === ticket.current) setError(message(cause));
+      },
     );
   }, [rpc]);
   useEffect(() => {
     refetch();
+    return () => {
+      ++ticket.current;
+    };
   }, [refetch]);
   useSignal("souls-changed", refetch);
   return { rpc, souls, error, setError, refetch };
@@ -63,20 +80,30 @@ export function useThreadSoul(threadId: string | null) {
         setState(result);
         setLoaded(true);
       },
-      () => { if (mine === ticket.current) setLoaded(true); },
+      () => {
+        if (mine === ticket.current) setLoaded(true);
+      },
     );
   }, [rpc, threadId]);
   useEffect(() => {
     setState(null);
     setLoaded(false);
     refetch();
-    return () => { ++ticket.current; };
+    return () => {
+      ++ticket.current;
+    };
   }, [refetch]);
   useSignal("souls-changed", refetch);
   useSignal("souls-session-changed", (payload) => {
     if ((payload as { threadId?: unknown })?.threadId === threadId) refetch();
   });
-  return { soul: state?.soul ?? null, allowDelegation: state?.allowDelegation ?? false, state, loaded, refetch };
+  return {
+    soul: state?.soul ?? null,
+    allowDelegation: state?.allowDelegation ?? false,
+    state,
+    loaded,
+    refetch,
+  };
 }
 
 type PendingSelection = {
@@ -86,7 +113,11 @@ type PendingSelection = {
   expiresAt: number | null;
 };
 
-const NO_PENDING: PendingSelection = { soul: null, allowDelegation: false, expiresAt: null };
+const NO_PENDING: PendingSelection = {
+  soul: null,
+  allowDelegation: false,
+  expiresAt: null,
+};
 
 /** The soul chosen on the compose screen, waiting for the thread it will bind to. */
 export function usePendingSoul() {
@@ -106,7 +137,10 @@ export function usePendingSoul() {
   // so nothing keeps promising a soul the next thread will not get.
   useEffect(() => {
     if (selection.expiresAt === null) return;
-    const timer = setTimeout(refetch, Math.max(0, selection.expiresAt - Date.now()) + 500);
+    const timer = setTimeout(
+      refetch,
+      Math.max(0, selection.expiresAt - Date.now()) + 500,
+    );
     return () => clearTimeout(timer);
   }, [selection.expiresAt, refetch]);
   return selection;
@@ -121,15 +155,23 @@ export function useSoulActivity(threadId: string | null): Activity | null {
     if (threadId === null) return;
     let live = true;
     rpc.call("souls_activity_get", { threadId }).then(
-      (result) => { if (live) setActivity(result.activity); },
+      (result) => {
+        if (live) setActivity(result.activity);
+      },
       () => undefined,
     );
-    return () => { live = false; };
+    return () => {
+      live = false;
+    };
   }, [rpc, threadId]);
   useSignal("souls-activity", (payload) => {
     const update = payload as { threadId?: unknown; activity?: unknown };
     if (update?.threadId !== threadId) return;
-    setActivity(typeof update.activity === "string" ? (update.activity as Activity) : null);
+    setActivity(
+      typeof update.activity === "string"
+        ? (update.activity as Activity)
+        : null,
+    );
   });
   return activity;
 }
@@ -142,11 +184,18 @@ export function useSoulActivity(threadId: string | null): Activity | null {
 export function useThreadMood(threadId: string | null): Mood {
   const { threads } = experimental_useSidebarThreads();
   const activity = useSoulActivity(threadId);
-  const live = threadId === null ? undefined : threads.find((thread) => thread.id === threadId);
+  const live =
+    threadId === null
+      ? undefined
+      : threads.find((thread) => thread.id === threadId);
   return moodFor(
     live === undefined
       ? null
-      : { status: live.status, runtimeStatus: live.runtimeStatus, hasPendingInteraction: live.hasPendingInteraction },
+      : {
+          status: live.status,
+          runtimeStatus: live.runtimeStatus,
+          hasPendingInteraction: live.hasPendingInteraction,
+        },
     activity,
   );
 }
@@ -169,13 +218,19 @@ export function useCompactionReminder(threadId: string | null) {
       return;
     }
     rpc.call("souls_compaction_get", { threadId }).then(
-      (result) => { if (mine === ticket.current) setReminder(result); },
-      () => { if (mine === ticket.current) setReminder(NO_REMINDER); },
+      (result) => {
+        if (mine === ticket.current) setReminder(result);
+      },
+      () => {
+        if (mine === ticket.current) setReminder(NO_REMINDER);
+      },
     );
   }, [rpc, threadId]);
   useEffect(() => {
     refetch();
-    return () => { ++ticket.current; };
+    return () => {
+      ++ticket.current;
+    };
   }, [refetch]);
   useSignal("souls-session-changed", (payload) => {
     if ((payload as { threadId?: unknown })?.threadId === threadId) refetch();
@@ -183,57 +238,91 @@ export function useCompactionReminder(threadId: string | null) {
   return reminder;
 }
 
-/** Which threads run which soul — the library page's "in use" hint. */
-export function useSoulSelections() {
+/** Which threads select which soul. Unknown usage is not a zero count. */
+export function useSoulSelectionState() {
   const rpc = useRpc<typeof rpcContract>();
-  const [counts, setCounts] = useState<Map<string, number>>(new Map());
+  const [counts, setCounts] = useState<Map<string, number> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const ticket = useRef(0);
   const refetch = useCallback(() => {
+    const mine = ++ticket.current;
     rpc.call("souls_selections").then(
       (result) => {
+        if (mine !== ticket.current) return;
         const next = new Map<string, number>();
         for (const selection of result.selections)
-          next.set(
-            selection.soul.id,
-            (next.get(selection.soul.id) ?? 0) + 1,
-          );
+          next.set(selection.soul.id, (next.get(selection.soul.id) ?? 0) + 1);
         setCounts(next);
+        setError(null);
       },
-      () => setCounts(new Map()),
+      (cause) => {
+        if (mine !== ticket.current) return;
+        setCounts(null);
+        setError(message(cause));
+      },
     );
   }, [rpc]);
   useEffect(() => {
     refetch();
+    return () => {
+      ++ticket.current;
+    };
   }, [refetch]);
   useSignal("souls-changed", refetch);
-  return counts;
+  return { counts, error, refetch };
 }
 
-/** One full soul, fetched on demand (the library detail and the editor). */
-export function useSoul(idOrName: string | null) {
+const EMPTY_COUNTS = new Map<string, number>();
+/** Legacy consumers need only the count map, not the library's loading state. */
+export function useSoulSelections() {
+  return useSoulSelectionState().counts ?? EMPTY_COUNTS;
+}
+
+/** A full persona plus explicit loading/error state for the library. */
+export function useSoulResource(idOrName: string | null) {
   const rpc = useRpc<typeof rpcContract>();
-  const [soul, setSoul] = useState<Soul | null>(null);
-  // Drop the previous soul as soon as the id changes, before its replacement arrives.
-  useEffect(() => {
-    setSoul(null);
-  }, [idOrName]);
-  // A slower response for a soul you already left must not replace the current one.
+  const [state, setState] = useState<{
+    key: string | null;
+    soul: Soul | null;
+    error: string | null;
+  }>({ key: null, soul: null, error: null });
   const ticket = useRef(0);
   const refetch = useCallback(() => {
     const mine = ++ticket.current;
     if (idOrName === null) {
-      setSoul(null);
+      setState({ key: null, soul: null, error: null });
       return;
     }
+    setState((current) =>
+      current.error === null ? current : { ...current, error: null },
+    );
     rpc.call("souls_get", { idOrName }).then(
       (result) => {
-        if (ticket.current === mine) setSoul(result.soul);
+        if (ticket.current === mine)
+          setState({ key: idOrName, soul: result.soul, error: null });
       },
-      () => undefined,
+      (cause) => {
+        if (ticket.current === mine)
+          setState({ key: idOrName, soul: null, error: message(cause) });
+      },
     );
   }, [rpc, idOrName]);
   useEffect(() => {
     refetch();
+    return () => {
+      ++ticket.current;
+    };
   }, [refetch]);
   useSignal("souls-changed", refetch);
-  return soul;
+  const current = state.key === idOrName;
+  return {
+    soul: current ? state.soul : null,
+    error: current ? state.error : null,
+    refetch,
+  };
+}
+
+/** Existing consumers only need the current persona, never a previous selection. */
+export function useSoul(idOrName: string | null) {
+  return useSoulResource(idOrName).soul;
 }
