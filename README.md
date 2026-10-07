@@ -15,7 +15,7 @@ One persona, many threads, and an edit reaches every one of them.
 ![Plugin SDK ≥ 0.5.29](https://img.shields.io/badge/plugin%20sdk-%E2%89%A5%200.5.29-86198f)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)
 
-[Features](#features) · [Install](#install) · [How it works](#how-it-works) · [Safety](#safe-by-default) · [CLI](#cli) · [Development](#development) · [Design notes](docs/DESIGN.md)
+[Features](#features) · [Install](#install) · [Where to find it](#where-to-find-it) · [Import](#import-an-agent-file) · [How it works](#how-it-works) · [Safety](#safe-by-default) · [CLI](#cli) · [Development](#development) · [Design notes](docs/DESIGN.md)
 
 <br>
 
@@ -189,6 +189,9 @@ starts a new preview.
 Nothing is saved until you click **Create soul**; cancelling leaves the library
 unchanged. Only the selected agent is created, not the whole configuration.
 
+<details>
+<summary><b>Formats, fields and limits</b></summary>
+
 ### Codex TOML
 
 ```toml
@@ -250,6 +253,8 @@ syntax, duplicate keys, oversized fields and duplicate soul names report
 errors rather than silently cutting content or overwriting an existing soul.
 YAML aliases and unsupported tags are rejected. Imports are saved as manually
 created souls and do not bind or start a thread.
+
+</details>
 
 ## How it works
 

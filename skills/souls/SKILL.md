@@ -31,7 +31,7 @@ thread runs as.
 | `souls_list` | See every soul and the one this thread runs as. |
 | `souls_get` | Read one soul in full. A thread running as a soul calls it to load its persona. |
 | `souls_eval` | Compare a soul with no soul on the same prompt. Omit `run` to see the prompt. Set `run: true` only when the user asked to spend the runs. `against` adds another soul. |
-| `souls_propose` | **The only way to create a soul.** Show a draft as a review card and wait for the user's decision. |
+| `souls_propose` | **The only way for you to create a soul.** Show a draft as a review card and wait for the user's decision. The user can also import a file or type a soul on the Souls page; those are their actions. |
 | `souls_update` | Change specific fields of an existing soul. The user approves the change on a card first. |
 | `souls_delete` | Delete a soul. The user confirms on a card first. |
 | `souls_select` | Bind a soul to this thread, or pass `threadId` for a child this thread spawned. `soulId: null` clears it. Other threads are not yours to change. |
@@ -64,7 +64,9 @@ interview instead:
 A soul is saved only when they approve the card. The same goes for every
 change: an edit reaches every thread running the soul, so `souls_update` and
 `souls_delete` also wait for the user on a card. Inside a thread, `bb souls
-create|update|delete` refuse and point you back to these tools.
+create|update|delete` refuse and point you back to these tools. The Souls page
+can also import an agent file or save a soul the user types. That does not go
+through you, and it does not bind a thread.
 
 ## Editing and applying
 

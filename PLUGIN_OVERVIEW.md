@@ -18,8 +18,13 @@ agent took it on. Souls turns that paragraph into a persona you pick per thread.
   editor, or let the interviewing agent pick a look that fits. In the banner
   it animates with what the thread is doing: thinking, running a command,
   editing, or waiting for you.
-- **A Souls page** in the sidebar to search, edit, delete and compare souls,
+- **A Souls page** in the sidebar: search a portrait library, filter to souls
+  in use, and sort by name or recent use. Edit, delete and compare from there,
   see how many threads run as each, and start an interview.
+- **Import an agent file.** Upload, paste, or give a public GitHub link for
+  Codex TOML, Markdown with YAML frontmatter, or a JSON/JSONC profile.
+  Instructions stay verbatim. Nothing is saved until you click **Create soul**,
+  and sandbox, tool and MCP settings are not imported.
 - **A `::soul` card** the agent posts once it has loaded its persona: its
   job, limits and expertise, with the full persona a click away.
 - **Children that start in character.** An agent arms a soul just before it
