@@ -9,14 +9,20 @@ An architecture map for maintainers. The user-facing story is in
 | File | Owns |
 | --- | --- |
 | `shared.ts` | The soul data model (zod), the persona renderer, the interview kickoff prompt. Imported by both bundles; keep it free of BB imports. |
+| `soul-import.ts` | Pure Codex agent TOML conversion to a validated soul draft, with warnings for ignored runtime settings. No file reads or writes. |
+| `soul-import-formats.ts` | Bounded format detection and Markdown/YAML + JSON/JSONC conversion. Returns candidate drafts for explicit selection, preserves instructions and never resolves file references or imports runtime settings. |
+| `soul-import-github.ts` | Server-only public GitHub URL validation and download: fixed raw host, no redirects/credentials, 10-second timeout and streaming byte limit, then the same converter. |
 | `eval.ts` | Persona grade, the comparison prompt, and the run record. Pure. Starting the threads is `server.ts`. |
 | `portrait.ts` | The 24×24 pixel-art portrait: traits from `look`, the emoji and a seed, then drawing. Pure. |
 | `motion.ts` | Thread activity and mood, and the animation frames for each mood. Pure. |
 | `store.ts` | SQLite access. **Synchronous on purpose**: `bb.agents.configure` cannot await. |
 | `server.ts` | RPC contract, agent tools, `configure`, the review and delete cards, the dispatch hook, activity and compaction, the CLI. |
 | `app.tsx` | Slot registration only. |
-| `components/souls-page.tsx` | The library navPanel and title-bar button. |
-| `components/soul-form.tsx` | The hand-editing dialog (create/update). |
+| `components/souls-page.tsx` | Library orchestration, profile/actions, comparison dialog and title-bar creation chooser. |
+| `components/soul-library.tsx` | Library cards, loading/empty states, creation options and readable profile sections. |
+| `soul-library.ts` | Pure summary search, natural/recent sorting and visible selection. No storage or thread authority. |
+| `components/soul-form.tsx` | The hand-editing dialog (create/update), including review of imported drafts. |
+| `components/soul-import.tsx` | GitHub URL, file upload or pasted definition → format detection/override → read-only candidate RPC → agent selection when needed → the existing editor's explicit Create soul action. |
 | `components/soul-picker.tsx` | The picker dialog, the composer banner, the app-overlay fallback, and the window-event handshake between them. |
 | `components/soul-review.tsx` | The `pendingInteraction` renderers: the review card for `souls_propose` and `souls_update`, and the delete confirmation for `souls_delete`. |
 | `components/soul-embed.tsx` | The `::soul{id="…"}` message directive. |
@@ -29,6 +35,42 @@ An architecture map for maintainers. The user-facing story is in
 returned by `souls_get`, `souls_select` and `souls_propose`, and previewed by
 the editor. `renderSoulInstructions` is the pointer `configure` injects,
 previewed by the picker with thread-scoped consent.
+
+## Library UI
+
+The host title bar owns one New soul chooser: interview, import or manual editor.
+The page keeps import as a secondary shortcut. The portrait library searches name,
+tagline, job and expertise, sorts without mutating RPC data, and filters only known
+positive thread selections. Usage loading/failure is unknown, never a zero count.
+The profile reads the matching full soul or shows a skeleton/error, never the
+previous selection's instructions. Compare and Delete are explicit dialogs;
+merely opening the page or either dialog starts no comparison or deletion.
+
+Named container queries switch below 48rem of panel width (not viewport width)
+to list/profile drill-down. Back retains query and list scroll; keyboard focus
+moves to the profile heading and back to the selected card without opening a
+keyboard. Portraits are 48px in cards/compact profiles and 72px in wide profiles.
+Deep links open the requested soul; missing links never fall back to a different
+persona. Native BB bottom sheets, modal focus handling and theme tokens remain
+shared with the import/editor surfaces. Loading/empty/error are distinct states.
+
+## Import review UI
+
+The import dialog owns a read-only two-step flow: source (and optional agent
+selection), then editable review. Upload, Paste and GitHub retain their inputs
+when switching tabs. Source/format changes invalidate previews; Back preserves
+source and separate edits for every candidate. Closing invalidates pending file
+reads/RPCs and clears the session. Only the editor's explicit Create soul action
+writes to storage.
+
+Reuse BB theme tokens and shared dialog primitives. On compact viewports these
+become native bottom sheets, not centered desktop dialogs. Headers and actions
+are fixed while bodies scroll. Agent cards and prompt previews have matching
+desktop heights. Import notes, appearance and persona details are disclosures;
+instructions stay prominent and the complete live persona remains available.
+Source and save errors appear directly above the actions, never below the fold.
+Keyboard source tabs, native radio groups and focusable prompt previews preserve
+accessible navigation without importing runtime authority.
 
 ## Invariants worth protecting
 

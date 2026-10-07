@@ -154,12 +154,102 @@ bb plugin install path:$PWD --yes
 
 | Where | What |
 | --- | --- |
-| **Souls** in the sidebar | The library: search, edit, delete and compare souls, and see how many threads run as each. **Interview me** and **New soul** open the composer with an interview prompt; **Write by hand** opens the editor, where **Look** pins a portrait's species, hair, headwear, accessory or palette, and **Shuffle** rerolls the rest. |
+| **Souls** in the sidebar | A searchable portrait library with **All souls / In use** filters and name/recent sorting beside a readable profile. **New soul** offers an interview, agent-file import or manual editor. Compact panes open profiles separately; **All souls** returns to your search and scroll position. Compare and delete have separate, explicit dialogs. **Look** in the editor pins portrait traits; **Shuffle** rerolls the rest. |
 | **Choose a soul…** in the composer's `+` menu | The picker. Choose a soul, then **Apply soul**. It previews **What the next session receives** and offers *Apply from the next turn* and the delegation checkbox. In the new-thread composer, the soul is bound before the first turn. |
 | **A banner above the composer** | Shown while a soul is active, tinted with that soul's colours, with a portrait that animates with what the thread is doing (thinking, writing, running a command, editing, reading, waiting for you) and says so in words: the soul the thread runs as (or your next thread starts as, with the minutes left to start it), whether it applies from the next session, and whether it can delegate. After a compaction it shows **Compacted** while the persona waits to go with your next message. Click the name for a peek at the job and hard limits; **Change** reopens the picker. |
 | **`@` a soul** in the composer | Attaches that soul's persona to your message, for the agent only. After a compaction the banner adds one for you. |
 | **A review card** in the thread | **Approve & create** (or **Approve changes**), **Request changes** with notes, or **Dismiss**. |
 | **A `::soul` card** in the chat | Posted once the agent has loaded its persona: a card in the soul's own colours with its job, and tabs that open its hard limits, principles, expertise and voice. It says so if the soul was edited after the session started, or the thread has moved to another soul. **Open in Souls** goes to it in the library. |
+
+## Import an agent file
+
+Open **Souls → Import agent file** and choose **Upload file**, **Paste text**
+or **GitHub URL**. Drop or choose a file, paste a definition, or provide a public
+GitHub link. Click **Review draft** (or **Fetch and review** for GitHub).
+The format is detected from the filename or contents; **Import options** lets
+you override it. Supply an optional filename when pasting an unnamed agent.
+
+| Format | Supported definitions |
+| --- | --- |
+| TOML (`.toml`) | Codex agent files with `developer_instructions`. |
+| Markdown (`.md`, `.agent.md`) | YAML-frontmatter agent files from Claude Code, Cursor, Copilot, Gemini CLI, Qwen Code, OpenCode and Kiro. The body supplies the instructions. |
+| JSON / JSONC (`.json`, `.jsonc`) | Inline `prompt` profiles such as Kiro's, OpenCode's `agent` configuration object, and Claude Code's `--agents` name-to-definition dictionary. Comments and trailing commas are supported. |
+
+For configurations with multiple agents, search or select an agent card to
+preview its instructions, then click **Review agent**. Definitions without valid
+inline prompts are skipped with warnings; a file with none reports an error.
+Configurations are limited to 50 definitions.
+
+The review editor puts **Agent instructions** first and previews what the agent
+will see. **Customize this soul** opens appearance and optional persona fields;
+**Import details** explains ignored settings and warnings. **Back** retains the
+source and each agent's unsaved edits. Changing the source or import options
+starts a new preview.
+
+Nothing is saved until you click **Create soul**; cancelling leaves the library
+unchanged. Only the selected agent is created, not the whole configuration.
+
+### Codex TOML
+
+```toml
+name = "Reviewer"
+description = "Review changes for correctness."
+model = "gpt-5"
+model_reasoning_effort = "high"
+developer_instructions = """
+Read the code before suggesting changes.
+Report only findings you can substantiate.
+"""
+```
+
+- `name` becomes the soul's name; if absent, the uploaded or remote filename supplies it.
+- `description` becomes the job, and the tagline when it fits (160 characters).
+- `developer_instructions` is required and preserved verbatim in **Voice and
+  temperament**, up to 32,000 characters. No model rewrites or splits the prompt.
+- `model` and `model_reasoning_effort` become an advisory Codex model preference.
+
+### Markdown with YAML frontmatter
+
+```markdown
+---
+name: Reviewer
+description: Review changes for correctness.
+model: inherit
+---
+
+Read the code before suggesting changes.
+Report only findings you can substantiate.
+```
+
+The Markdown body is preserved verbatim in **Voice and temperament**, including
+blank lines and indentation. JSON imports preserve the inline `prompt` string.
+Both use `name` and `description` like TOML; Markdown names derived from
+`reviewer.agent.md` become `reviewer`. Optional `model`, `effort` and
+`reasoningEffort` values are advisory preferences without a guessed BB provider.
+`model: inherit` leaves the current model unchanged. Review harness-specific
+model names and reasoning levels in the editor.
+
+Other settings are listed as not imported. Sandbox, approval, tool, hook,
+executor and MCP settings cannot grant permissions or delegation consent.
+Referenced files are never read or fetched. JSON profiles whose entire prompt
+is a file reference report an error; embedded references produce a warning.
+Use an agent with inline instructions, not Codex's top-level `config.toml`.
+Plain repository instructions such as `AGENTS.md` and frontmatter-only fork
+restriction profiles are not agent definitions.
+
+GitHub links can use `https://github.com/owner/repo/blob/ref/path/agent.md`
+or `https://raw.githubusercontent.com/owner/repo/ref/path/agent.md`;
+`.toml`, `.md`, `.agent.md`, `.json` and `.jsonc` files are supported.
+Downloads are public-only, time out after 10 seconds, and never follow redirects
+or forward URL credentials/query tokens. For private repositories, upload or
+paste the file instead.
+
+Uploads and downloads are limited to 128,000 bytes, pasted definitions to
+128,000 characters, and individual prompts to 32,000 characters. Invalid
+syntax, duplicate keys, oversized fields and duplicate soul names report
+errors rather than silently cutting content or overwriting an existing soul.
+YAML aliases and unsupported tags are rejected. Imports are saved as manually
+created souls and do not bind or start a thread.
 
 ## How it works
 
@@ -292,7 +382,7 @@ soul only when it fits the child they spawn.
 npm install
 npm test                           # node:test, no model calls
 npm run typecheck
-bb plugin build
+npm run test:bundle                # build + exercise the deployed server artifact
 bb plugin install path:$PWD --yes
 bb plugin dev                      # rebuild and reload on every save
 ```
