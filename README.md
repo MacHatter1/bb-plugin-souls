@@ -120,7 +120,7 @@ you ask.
 <tr>
 <td align="center"><img src="docs/screenshots/review-card.png" alt="A review card for a new soul, Sable, with the pixel-art look the interviewing agent chose for her" width="290"><br><sub><b>Interviewed, then reviewed</b></sub></td>
 <td align="center"><img src="docs/screenshots/picker.png" alt="The soul picker opened from the + menu, with session evidence, the delegation checkbox and Apply from the next turn" width="290"><br><sub><b>Choose a soul… from the + menu</b></sub></td>
-<td align="center"><img src="docs/screenshots/souls-page.png" alt="The Souls page: each soul with its own pixel-art portrait, and Hazel's job, voice, expertise and rules" width="290"><br><sub><b>Every soul, its own face</b></sub></td>
+<td align="center"><img src="docs/screenshots/souls-page.png" alt="The Souls library with Hazel, Orbit, Pip, Quill and Sable, and Hazel's job and voice open beside it" width="290"><br><sub><b>Every soul, its own face</b></sub></td>
 </tr>
 </table>
 </div>
@@ -168,6 +168,12 @@ or **GitHub URL**. Drop or choose a file, paste a definition, or provide a publi
 GitHub link. Click **Review draft** (or **Fetch and review** for GitHub).
 The format is detected from the filename or contents; **Import options** lets
 you override it. Supply an optional filename when pasting an unnamed agent.
+
+<div align="center">
+
+<img src="docs/screenshots/import.png" alt="The import review for a fictional Codex agent named Reviewer. The instructions are kept verbatim, and nothing is saved yet." width="900">
+
+</div>
 
 | Format | Supported definitions |
 | --- | --- |
