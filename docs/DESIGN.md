@@ -16,6 +16,8 @@ An architecture map for maintainers. The user-facing story is in
 | `portrait.ts` | The 24×24 pixel-art portrait: traits from `look`, the emoji and a seed, then drawing. Pure. |
 | `motion.ts` | Thread activity and mood, and the animation frames for each mood. Pure. |
 | `store.ts` | SQLite access. **Synchronous on purpose**: `bb.agents.configure` cannot await. |
+| `team-server.ts` | Managed child starts, validated model preferences/fallback, task closure and concurrency admission. No model completions. |
+| `components/soul-team.tsx` | Roster/limit/handoff editor, archive/promotion, version comparison/restore and hiring/usage history. |
 | `server.ts` | RPC contract, agent tools, `configure`, the review and delete cards, the dispatch hook, activity and compaction, the CLI. |
 | `app.tsx` | Slot registration only. |
 | `components/souls-page.tsx` | Library orchestration, profile/actions, comparison dialog and title-bar creation chooser. |
@@ -26,7 +28,7 @@ An architecture map for maintainers. The user-facing story is in
 | `components/soul-picker.tsx` | The picker dialog, the composer banner, the app-overlay fallback, and the window-event handshake between them. |
 | `components/soul-review.tsx` | The `pendingInteraction` renderers: the review card for `souls_propose` and `souls_update`, and the delete confirmation for `souls_delete`. |
 | `components/soul-embed.tsx` | The `::soul{id="…"}` message directive. |
-| `components/soul-bits.tsx` | Portrait and aura, pills, chips, fields, line-list inputs, read-only soul body. |
+| `components/soul-bits.tsx` | Portraits, keyboard-accessible tabs, pills, chips, fields, line-list inputs, read-only soul body. |
 | `hooks/use-souls.ts` | RPC reads kept current by `souls-changed`, `souls-activity` and thread-filtered `souls-session-changed` signals. |
 | `skills/souls/SKILL.md` | Triggers, tool map, rules. Injected into every thread, so keep it short. |
 | `skills/souls/references/interview.md` | The interview protocol; loaded on demand by the skill. |
@@ -37,6 +39,12 @@ the editor. `renderSoulInstructions` is the pointer `configure` injects,
 previewed by the picker with thread-scoped consent.
 
 ## Library UI
+
+The current visual direction and verification scope are in [UI.md](UI.md).
+Persona, Team and History are separate profile views; the editor separates
+Persona, Team and Appearance. Dialog headers and actions remain fixed while the
+working area scrolls. The thread picker places the searchable directory beside
+thread-specific settings, stacking them on compact screens.
 
 The host title bar owns one New soul chooser: interview, import or manual editor.
 The page keeps import as a secondary shortcut. The portrait library searches name,
@@ -85,11 +93,17 @@ accessible navigation without importing runtime authority.
 3. **`configure` always returns the full tool list and the `souls` skill.**
    Returning `[]` deselects them for that resolution: the selection *is* the
    return value.
-4. **The dispatch hook never rejects.** A throwing hook fails the user's
-   message attempt; it swallows everything and always returns `proceed`.
-5. **An agent changes a soul only through a card the user approves.** A soul
+4. **Persona binding never rejects a message.** Binding failures are logged
+   and swallowed. Configured child limits return `wait`, including when counts
+   cannot be read. Unrelated threads proceed. Managed children wait until their
+   assignment is confirmed and cannot auto-start after their task has finished.
+5. **Edits and deletes always need approval; automatic hiring is opt-in.** A soul
    is shared: an edit reaches every thread running it, so a prompt injection
    in one thread must not be able to rewrite a persona the others load.
+   `souls_hire` can create a new soul only when the directly selected soul's
+   user-saved `allowHiring` is true. It checks the current value on every call,
+   never overwrites a soul, and saves hires with both permissions off and
+   `origin: hired`. It does not spawn or select a thread.
    `souls_propose` and `souls_update` wait on the review card (an edit lists
    the fields it changes), `souls_delete` on a confirmation. The editor and the
    CLI outside a thread are the user's own hands and save directly. Inside a
@@ -102,25 +116,79 @@ accessible navigation without importing runtime authority.
    soul's identity, consent, and an instruction to load `renderSoulPersona`
    through `souls_get` and post `::soul{id}`. The pointer is bounded by
    `INSTRUCTION_BUDGET` (3800). The persona is never cut.
-7. **Model pins are advisory.** Only the composer can apply them (a provider
-   change is a handoff). The backend never writes `threads.update` model
-   fields. A comparison leaves the pin off so every arm uses the project's model.
+7. **Model pins never mutate a live provider.** The composer applies ordinary
+   thread preferences; managed child starts validate the requested tuple against
+   `providers.models` on the parent's environment and inherit the parent's
+   permission mode. Unavailable/incompatible preferences fall back visibly to
+   the parent's tuple. The backend never writes `threads.update` model fields.
+   Comparisons leave pins off so every arm uses the project's model.
 8. **A comparison binds before the first turn.** Each arm is spawned with the
    prompt held, marked as an eval thread, then selected, then released. The
    dispatch hook skips eval threads, so a parent's armed child is not consumed.
    Opening the Souls page does not start a run. The optional delegation probe
    explicitly authorises one child per arm; actual child counts are evidence,
    while independent verification still needs transcript review.
-9. **Consent is separate from personality.** Only explicit user selection or
-   review approval sets per-thread delegation consent. Tool/CLI selections
-   preserve consent for the same soul, reset it for a different one, and never
-   grant it. Forks and armed children do not inherit it. This does not widen
-   provider permission modes or other approvals.
+9. **Consent is separate from personality.** `defaultAllowDelegation` and
+   `allowHiring` belong to the saved soul/summary, outside agent draft and
+   patch schemas. The editor and review card let the user set them. New direct
+   bindings snapshot the delegation default; an explicit per-thread boolean
+   wins, including false. Reselecting
+   the same soul preserves that thread's choice, and changing the default does
+   not rewrite existing bindings. Armed children use their own chosen soul's
+   default rather than inheriting the parent's override; side-chat inheritance
+   grants no consent. Legacy souls default to false without a database migration.
+   Hiring is independent of delegation and applies only to direct bindings;
+   reading or attaching another soul never grants its hiring authority.
+   Imported definitions and agent drafts cannot set either permission. This does not
+   widen provider permission modes or other approvals.
 10. **Prepared is not injected.** `configure` records changed fingerprints.
     `souls_thread_get`/`bb souls status` correlate these with recorded session
     identity timestamps. Later live-turn resolutions cannot relabel an old
     session as updated. Missing evidence stays unknown. Thread deletion removes
     tracking; clearing a soul records an explicit no-soul selection.
+
+## Teams, tasks and versions
+
+`team` is user-controlled configuration outside persona draft/patch schemas:
+preferred role/soul pairs, nullable hiring/concurrency limits and a structured
+handoff template. No import or autonomous hire can set authority or limits.
+Thread rows carry a nullable hiring override and persona revision pin.
+Reselection preserves both; switching souls resets them unless the user
+explicitly supplies a choice. Side chats can read a source persona/pin but
+inherit neither hiring nor delegation permission.
+
+Each manager thread has at most one active task. Hiring atomically checks the
+current effective permission and the task's creation count, saves the new soul
+with both permissions off, and appends provenance. The ledger survives deletes.
+Temporary hires archive only on explicit task closure after child status and
+queued-message checks. Promotion makes a hire permanent. Archiving preserves
+records and existing personas but excludes new assignments; it grants no new
+permissions. Existing pre-feature hires have no task metadata and are retained.
+
+Managed starts reserve a unique `(parent, task, key)` receipt before the first
+await. Retries/reloads return that receipt; uncertain API outcomes never create
+a replacement. The child inherits permissions and starts with a held message.
+Its soul is bound before an admission recheck; release never invokes Send now
+or overrides plugin waits. Metadata and the receipt guard admission after a
+crash. Managed starts do not consume pending CLI soul assignments.
+Read-only briefs reuse the parent environment; writes provision a
+managed worktree on the parent's host and branch. No background agent is used.
+
+Concurrency admission reads active/starting child counts in the host's serialized
+dispatch pass and queues excess work with a retry time. Bindings land before
+admission, so waiting children cannot consume a different soul arm later.
+Starting is counted before active: a transition can briefly double-count a
+slot and delay admission, but cannot make that slot disappear from both reads.
+Join-turns and already-running children retain their slot. The host's explicit
+Send-now override still applies; concurrent idle-thread follow-ups have the
+host's documented snapshot boundary.
+
+Every soul save records a monotonically numbered snapshot and changed-field
+labels. Legacy souls seed their initial snapshot before their first update or
+history read. Pinning overlays only historical persona fields on current
+permissions/team/lifecycle metadata. Restore also copies only persona fields,
+checks name uniqueness and creates a new revision. Histories are paginated
+with bounded RPC output; hire/usage records keep stable thread references.
 
 ## Injection versus behaviour
 
@@ -212,8 +280,8 @@ tests share it.
   through them), then a one-pixel outline. Colours come from PICO-8's palette;
   they are the art, not UI chrome, so they do not use theme tokens.
 - **Rendering:** `SoulPortrait` emits crisp SVG runs. Keep its size a multiple
-  of 24px (36, 48, 72, 96) so pixels stay square on 2× screens. `SoulAura`
-  blurs the portrait to tint the card cover and the banner.
+  of 24px (36, 48, 72, 96) so pixels stay square on 2× screens. Compact cards
+  and banners use the portrait directly, without a decorative cover.
 
 ## Motion
 
@@ -298,9 +366,8 @@ so a pane that switches threads never filters on the old thread id.
   panes. With no banner mounted, a `souls:open-picker` window event opens the
   app overlay.
 - The banner uses `chrome: "bare"`, so a thread with no soul shows nothing.
-- A soul's colour comes from `SoulAura`: its portrait, enlarged and blurred
-  behind the card cover and the banner. It gives each soul a distinct tint
-  without a colour literal in the UI, which plugin styling forbids.
+- A soul's colour comes from its pixel portrait. Card and banner chrome uses
+  BB's theme tokens, with no colour literals in plugin-owned UI.
 - `SoulPortrait` is memoised on the face, mood and size, and the banner keeps
   the live mood in a small `BannerIdentity` child: the sidebar thread list and
   the composer view both re-render the banner often.

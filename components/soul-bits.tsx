@@ -1,7 +1,18 @@
 // Small presentational pieces the library page, the composer picker, and the
 // review card all share. Colors come from host theme tokens only — never
 // hardcoded literals — so custom palettes keep working.
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  experimental_ProviderModelPicker as ProviderModelPicker,
+  type ExperimentalProviderModelPickerValue,
+} from "@get-bb/plugin-sdk/app";
 import { cn } from "@/lib/utils";
 import { MOTION, type Mood } from "../motion";
 import { PORTRAIT_SIZE, portraitRuns } from "../portrait";
@@ -14,7 +25,7 @@ import {
   type SoulModelPin,
 } from "../shared";
 import { Icon } from "@/components/ui/icon";
-import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
 export function Chip({ children }: { children: ReactNode }) {
@@ -22,6 +33,72 @@ export function Chip({ children }: { children: ReactNode }) {
     <span className="rounded-md border border-border bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
       {children}
     </span>
+  );
+}
+
+export function SoulTabs<T extends string>({
+  id,
+  label,
+  value,
+  options,
+  onChange,
+  disabled = false,
+}: {
+  id: string;
+  label: string;
+  value: T;
+  options: readonly { value: T; label: string; icon: string }[];
+  onChange: (value: T) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label={label}
+      className="flex gap-5 overflow-x-auto border-b border-border"
+    >
+      {options.map((option, index) => (
+        <button
+          key={option.value}
+          id={`${id}-${option.value}`}
+          type="button"
+          role="tab"
+          aria-selected={value === option.value}
+          aria-controls={`${id}-panel`}
+          tabIndex={value === option.value ? 0 : -1}
+          disabled={disabled}
+          onClick={() => onChange(option.value)}
+          onKeyDown={(event) => {
+            const nextIndex =
+              event.key === "ArrowRight"
+                ? (index + 1) % options.length
+                : event.key === "ArrowLeft"
+                  ? (index - 1 + options.length) % options.length
+                  : event.key === "Home"
+                    ? 0
+                    : event.key === "End"
+                      ? options.length - 1
+                      : null;
+            const next = nextIndex === null ? undefined : options[nextIndex];
+            if (next === undefined) return;
+            event.preventDefault();
+            onChange(next.value);
+            event.currentTarget.parentElement
+              ?.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+              [nextIndex ?? 0]?.focus();
+          }}
+          className={cn(
+            "inline-flex shrink-0 items-center gap-2 border-b-2 px-0.5 py-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50",
+            value === option.value
+              ? "border-foreground font-medium text-foreground"
+              : "border-transparent text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Icon name={option.icon} className="size-4" />
+          {option.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -57,7 +134,9 @@ export function Pill({
         PILL_TONES[tone],
       )}
     >
-      {icon === undefined ? null : <Icon name={icon} className="size-3 shrink-0" />}
+      {icon === undefined ? null : (
+        <Icon name={icon} className="size-3 shrink-0" />
+      )}
       <span className={labelClassName}>{children}</span>
     </span>
   );
@@ -66,7 +145,11 @@ export function Pill({
 /** True when the user asked the system for less motion. */
 export function usePrefersReducedMotion(): boolean {
   const query = "(prefers-reduced-motion: reduce)";
-  const [reduced, setReduced] = useState(() => typeof window !== "undefined" && window.matchMedia?.(query).matches === true);
+  const [reduced, setReduced] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia?.(query).matches === true,
+  );
   useEffect(() => {
     const media = window.matchMedia?.(query);
     if (media === undefined) return;
@@ -115,19 +198,44 @@ function SoulPortraitView({ soul, mood, className }: SoulPortraitProps) {
       shapeRendering="crispEdges"
       className={cn("block shrink-0", className)}
     >
-      <rect width={PORTRAIT_SIZE} height={PORTRAIT_SIZE} fill={portrait.background} />
+      <rect
+        width={PORTRAIT_SIZE}
+        height={PORTRAIT_SIZE}
+        fill={portrait.background}
+      />
       {/* Keyed by mood: a new mood mounts fresh SMIL timelines, never stale frames. */}
       <g key={`figure-${mood ?? "still"}`}>
         {runs.map((run) => (
-          <rect key={`${run.x},${run.y}`} x={run.x} y={run.y} width={run.width} height={1} fill={run.colour} />
+          <rect
+            key={`${run.x},${run.y}`}
+            x={run.x}
+            y={run.y}
+            width={run.width}
+            height={1}
+            fill={run.colour}
+          />
         ))}
         {motion === null || (motion.eyes === "blink" && !live) ? null : (
           <g opacity={motion.eyes === "closed" ? 1 : 0}>
             {portrait.blink.map((pixel) => (
-              <rect key={`${pixel.x},${pixel.y}`} x={pixel.x} y={pixel.y} width={1} height={1} fill={pixel.colour} />
+              <rect
+                key={`${pixel.x},${pixel.y}`}
+                x={pixel.x}
+                y={pixel.y}
+                width={1}
+                height={1}
+                fill={pixel.colour}
+              />
             ))}
             {motion.eyes === "blink" ? (
-              <animate attributeName="opacity" values="0;1;0" keyTimes="0;0.95;0.98" dur="4.4s" calcMode="discrete" repeatCount="indefinite" />
+              <animate
+                attributeName="opacity"
+                values="0;1;0"
+                keyTimes="0;0.95;0.98"
+                dur="4.4s"
+                calcMode="discrete"
+                repeatCount="indefinite"
+              />
             ) : null}
           </g>
         )}
@@ -143,24 +251,33 @@ function SoulPortraitView({ soul, mood, className }: SoulPortraitProps) {
         ) : null}
       </g>
       <g key={`overlay-${mood ?? "still"}-${live ? "live" : "still"}`}>
-      {frames.map((frame, index) =>
-        !live && index !== Math.min(still, frames.length - 1) ? null : (
-          <g key={index} opacity={live ? (index === 0 ? 1 : 0) : 1}>
-            {frame.map((pixel) => (
-              <rect key={`${pixel.x},${pixel.y}`} x={pixel.x} y={pixel.y} width={1} height={1} fill={pixel.colour} />
-            ))}
-            {live && frames.length > 1 ? (
-              <animate
-                attributeName="opacity"
-                values={frames.map((_, other) => (other === index ? "1" : "0")).join(";")}
-                dur={ms(cycle)}
-                calcMode="discrete"
-                repeatCount="indefinite"
-              />
-            ) : null}
-          </g>
-        ),
-      )}
+        {frames.map((frame, index) =>
+          !live && index !== Math.min(still, frames.length - 1) ? null : (
+            <g key={index} opacity={live ? (index === 0 ? 1 : 0) : 1}>
+              {frame.map((pixel) => (
+                <rect
+                  key={`${pixel.x},${pixel.y}`}
+                  x={pixel.x}
+                  y={pixel.y}
+                  width={1}
+                  height={1}
+                  fill={pixel.colour}
+                />
+              ))}
+              {live && frames.length > 1 ? (
+                <animate
+                  attributeName="opacity"
+                  values={frames
+                    .map((_, other) => (other === index ? "1" : "0"))
+                    .join(";")}
+                  dur={ms(cycle)}
+                  calcMode="discrete"
+                  repeatCount="indefinite"
+                />
+              ) : null}
+            </g>
+          ),
+        )}
       </g>
     </svg>
   );
@@ -178,28 +295,14 @@ export const SoulPortrait = memo(
     before.soul.id === after.soul.id &&
     before.soul.name === after.soul.name &&
     before.soul.emoji === after.soul.emoji &&
-    JSON.stringify(before.soul.look ?? null) === JSON.stringify(after.soul.look ?? null),
+    JSON.stringify(before.soul.look ?? null) ===
+      JSON.stringify(after.soul.look ?? null),
 );
 
-/**
- * A soul's own colours as an ambient wash: its portrait, enlarged and blurred
- * behind the content. Size and place it with `className` inside a
- * `relative overflow-hidden` parent.
- */
-export function SoulAura({ soul, className }: { soul: PortraitSubject; className?: string }) {
-  return (
-    <span aria-hidden className={cn("pointer-events-none absolute select-none blur-2xl saturate-150", className)}>
-      <SoulPortrait soul={soul} className="size-full" />
-    </span>
-  );
-}
-
-/** A small uppercase label above a group of persona details. */
+/** A quiet label above a group of persona details. */
 export function Overline({ children }: { children: ReactNode }) {
   return (
-    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-      {children}
-    </p>
+    <p className="text-xs font-medium text-muted-foreground">{children}</p>
   );
 }
 
@@ -226,7 +329,9 @@ export function RuleList({
               kind === "never" ? "text-destructive" : "text-success",
             )}
           />
-          <span className="min-w-0">{item}</span>
+          <span className="min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+            {item}
+          </span>
         </li>
       ))}
     </ul>
@@ -320,61 +425,87 @@ export function ModelPinFields({
   value: SoulModelPin;
   onChange: (next: SoulModelPin) => void;
 }) {
-  const set = (part: keyof NonNullable<SoulModelPin>, next: string) => {
-    const merged = {
-      providerId: value?.providerId ?? null,
-      model: value?.model ?? null,
-      reasoningLevel: value?.reasoningLevel ?? null,
-      [part]: next === "" ? null : next,
-    };
-    onChange(
-      merged.providerId === null &&
-        merged.model === null &&
-        merged.reasoningLevel === null
-        ? null
-        : merged,
-    );
+  const level = value?.reasoningLevel;
+  const pickerValue: ExperimentalProviderModelPickerValue = {
+    providerId: value?.providerId ?? "",
+    model: value?.model ?? "",
+    reasoningLevel:
+      level === "none" ||
+      level === "low" ||
+      level === "medium" ||
+      level === "high" ||
+      level === "xhigh" ||
+      level === "max" ||
+      level === "ultra" ||
+      level === "ultracode"
+        ? level
+        : "medium",
   };
   return (
     <div className="space-y-1.5">
       <span className="text-xs font-medium text-foreground">
         Preferred model (optional)
       </span>
-      <div className="grid gap-2 sm:grid-cols-3">
-        <Input
-          aria-label="Provider id"
-          placeholder="provider id"
-          value={value?.providerId ?? ""}
-          onChange={(event) => set("providerId", event.target.value)}
-        />
-        <Input
-          aria-label="Model"
-          placeholder="model"
-          value={value?.model ?? ""}
-          onChange={(event) => set("model", event.target.value)}
-        />
-        <Input
-          aria-label="Reasoning level"
-          placeholder="reasoning"
-          value={value?.reasoningLevel ?? ""}
-          onChange={(event) => set("reasoningLevel", event.target.value)}
-        />
+      <div
+        className="flex flex-wrap items-center gap-2"
+        role="group"
+        aria-label="Preferred model"
+      >
+        {value === null ? (
+          <>
+            <span className="text-xs text-muted-foreground">
+              Use thread settings
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                onChange({
+                  providerId: null,
+                  model: null,
+                  reasoningLevel: null,
+                })
+              }
+            >
+              Choose model
+            </Button>
+          </>
+        ) : (
+          <>
+            <ProviderModelPicker
+              value={pickerValue}
+              onChange={({ providerId, model, reasoningLevel }) => {
+                if (
+                  providerId !== value.providerId ||
+                  model !== value.model ||
+                  reasoningLevel !== value.reasoningLevel
+                ) {
+                  onChange({ providerId, model, reasoningLevel });
+                }
+              }}
+              className="h-8 max-w-full"
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onChange(null)}
+            >
+              Use thread settings
+            </Button>
+          </>
+        )}
       </div>
       <span className="block text-xs text-muted-foreground">
-        Applied to the composer's pickers when you choose this soul in a thread.
-        Leave blank to keep whatever the thread already uses.
+        Applied when you choose this soul in the composer or start a managed
+        soul child. Use thread settings to inherit the current selection.
       </span>
     </div>
   );
 }
 
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: ReactNode;
-}) {
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="space-y-1">
       <p className="text-xs font-medium text-muted-foreground">{title}</p>

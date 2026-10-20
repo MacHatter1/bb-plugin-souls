@@ -50,9 +50,43 @@ the soul, and an edit reaches every thread that uses it.
 | See that the persona loaded | ❌ | ✅ `::soul` card and session evidence |
 | Tell personas apart at a glance | ❌ | ✅ a pixel-art portrait each |
 | Start a spawned child as a persona | ❌ | ✅ `souls_arm_child` |
+| Let an authorized soul create specialists | ❌ | ✅ opt-in `souls_hire` |
 | Compare a persona with no persona | ❌ | ✅ when you ask |
 
 ## Features
+
+### Soul teams
+
+The soul editor's **Team, limits and handoffs** section saves preferred
+specialists, a maximum number of new hires per task, concurrent-child limits,
+and the brief/result requirements sent to children. Blank limits are unlimited.
+
+An authorized manager uses `souls_team` to inspect its roster and
+`souls_spawn_child` to assign work. The child starts with its soul already
+bound. Its saved model/provider/reasoning preference is checked on the parent's
+environment; an unavailable preference falls back visibly to the parent's
+settings. Permissions are inherited. Read-only assignments reuse the workspace;
+write assignments get a worktree based on the parent's branch. Stable assignment
+keys prevent duplicate starts after retries or reloads; uncertain starts retain
+their receipt for inspection.
+
+New hires default to **task-only**. `souls_finish_task` explicitly closes the
+manager thread's current task once children have no queued/running work, then
+archives its temporary hires. Permanent hires and hires you **Keep permanently**
+from their profile remain available. **Show archived** reveals archived souls;
+**Restore to library** makes them assignable again. Nothing is deleted by task
+cleanup. A new task receives a fresh hiring allowance; deleted hires still count
+against their original task.
+
+Profiles show **Hiring and thread history**, plus version history with persona
+comparison and restore. A restore saves a new revision and preserves current
+permissions and team settings. The thread picker offers **Persona version**
+and **Hiring in this thread**: pin a revision or follow latest, and override the
+soul's hiring setting for that thread. Pins freeze persona text while permissions
+and limits remain current.
+
+These features add no evaluator, service dependency or background model calls.
+Only explicitly assigned child work starts an agent run.
 
 <table>
 <tr>
@@ -90,7 +124,9 @@ you can see that it did.
 ### 🧒 Children start in character
 
 An agent calls `souls_arm_child` just before it spawns a child, and the child
-is bound to the soul before its first session.
+is bound to the soul before its first session. Enable **Allow hiring** on a
+soul to let it create missing specialists automatically with `souls_hire`, or
+reuse any suitable soul already in your library.
 
 </td>
 </tr>
@@ -100,7 +136,9 @@ is bound to the soul before its first session.
 ### 🔐 Consent is yours to give
 
 A persona is not permission. Only you can let a soul spawn and coordinate
-child threads, with a checkbox scoped to one thread.
+child threads. Enable **Allow child threads by default** once in the soul editor
+or review card; new threads bound to that soul use it automatically. The thread
+picker's checkbox overrides that choice for one thread.
 
 </td>
 <td valign="top">
@@ -156,10 +194,10 @@ bb plugin install path:$PWD --yes
 | --- | --- |
 | **Souls** in the sidebar | A searchable portrait library with **All souls / In use** filters and name/recent sorting beside a readable profile. **New soul** offers an interview, agent-file import or manual editor. Compact panes open profiles separately; **All souls** returns to your search and scroll position. Compare and delete have separate, explicit dialogs. **Look** in the editor pins portrait traits; **Shuffle** rerolls the rest. |
 | **Choose a soul…** in the composer's `+` menu | The picker. Choose a soul, then **Apply soul**. It previews **What the next session receives** and offers *Apply from the next turn* and the delegation checkbox. In the new-thread composer, the soul is bound before the first turn. |
-| **A banner above the composer** | Shown while a soul is active, tinted with that soul's colours, with a portrait that animates with what the thread is doing (thinking, writing, running a command, editing, reading, waiting for you) and says so in words: the soul the thread runs as (or your next thread starts as, with the minutes left to start it), whether it applies from the next session, and whether it can delegate. After a compaction it shows **Compacted** while the persona waits to go with your next message. Click the name for a peek at the job and hard limits; **Change** reopens the picker. |
+| **A banner above the composer** | Shown while a soul is active, with a compact portrait that animates with what the thread is doing (thinking, writing, running a command, editing, reading, waiting for you) and says so in words: the soul the thread runs as (or your next thread starts as, with the minutes left to start it), whether it applies from the next session, and whether it can delegate. After a compaction it shows **Compacted** while the persona waits to go with your next message. Click the name for a peek at the job and hard limits; **Change** reopens the picker. |
 | **`@` a soul** in the composer | Attaches that soul's persona to your message, for the agent only. After a compaction the banner adds one for you. |
 | **A review card** in the thread | **Approve & create** (or **Approve changes**), **Request changes** with notes, or **Dismiss**. |
-| **A `::soul` card** in the chat | Posted once the agent has loaded its persona: a card in the soul's own colours with its job, and tabs that open its hard limits, principles, expertise and voice. It says so if the soul was edited after the session started, or the thread has moved to another soul. **Open in Souls** goes to it in the library. |
+| **A `::soul` card** in the chat | Posted once the agent has loaded its persona: a compact portrait card with its job and expandable hard limits, principles, expertise and voice. Its badge reports selection or version state, rather than claiming compliance. It says so if the soul was edited after the session started, or the thread has moved to another soul. **Open in Souls** goes to it in the library. |
 
 ## Import an agent file
 
@@ -315,17 +353,22 @@ Invariants, session semantics, evidence and comparisons are covered in
 
 ## Safe by default
 
-- ✋ **Nothing is saved without you.** An agent creates, edits or deletes a
-  soul only through a card you approve, which lists what an edit changes. An
+- ✋ **Hiring is opt-in; edits and deletes need approval.** Creation normally
+  waits on a review card. Enable **Allow hiring** in a soul's editor or review
+  card to let threads running as it save new specialists automatically.
+  New hires start with hiring and child-thread defaults off. Hiring does not
+  authorize spawning. An agent's edits and deletes always wait on a card. An
   edit reaches every thread running that soul, so text an agent reads in one
   thread cannot quietly rewrite the persona for the others. An agent binds only
   its own thread and the children it spawned, and `bb souls create`, `update`
   and `delete` refuse when an agent runs them inside a thread.
 - 🔐 **A persona is not permission.** Delegation consent comes only from the
-  checkbox in the picker or on the review card. It is off by default, scoped to
-  one soul in one thread, and not inherited by children or side chats. Agent
-  tools and CLI flags cannot grant it, and it changes no other approval or
-  permission mode.
+  user's saved soul default or a per-thread checkbox. Soul defaults start off;
+  enabling one applies to new bindings, while existing thread choices stay as
+  they are. An explicit unchecked thread checkbox overrides an enabled default.
+  Children use their chosen soul's own default, not their parent's thread
+  override; side chats do not inherit consent. Imported definitions and agent
+  drafts cannot grant it, and it changes no other approval or permission mode.
 - ⏸️ **A working thread is never stopped.** *Apply from the next turn* and
   `--now` release only an idle runtime. A busy thread keeps its persona until
   its session is next started.
@@ -381,11 +424,13 @@ bb souls eval <soul> --run            # compare with no soul on the same prompt
 **Agent tools:** `souls_list()`, `souls_get({ idOrName })`,
 `souls_eval({ idOrName, run, prompt, against, baseline, projectId })`,
 `souls_propose({ draft, summary, openQuestions, existingId })`,
+`souls_hire({ draft })`,
+`souls_team()`, `souls_spawn_child({ soulId, key, task, access })`, `souls_finish_task()`,
 `souls_update({ idOrName, patch, summary })`, `souls_delete({ idOrName })`,
 `souls_select({ soulId, threadId })` and `souls_arm_child({ soulId })`. The
 bundled [skill](skills/souls/SKILL.md) teaches agents to interview you before
-proposing a soul, to load their persona when a soul is active, and to arm a
-soul only when it fits the child they spawn.
+proposing a soul, to hire specialists when permitted, to load their persona
+when a soul is active, and to arm a soul only when it fits the child they spawn.
 
 ## Development
 
@@ -414,9 +459,9 @@ docs/       logo, screenshots and design notes
 
 **Tests** cover the renderers, the persona grade and the portraits with unit
 tests, and the server through the SDK's fake plugin host: review cards for
-every agent change, child arming, session evidence, delegation consent,
-comparison runs, compaction reminders and thread activity. None of them call a
-model.
+interviews and edits, permission-gated hiring, child arming, session evidence,
+delegation consent, comparison runs, compaction reminders and thread activity.
+None of them call a model.
 
 `PLUGIN_OVERVIEW.md` is the store listing. Keep it in step with
 `bb.description` in `package.json`.

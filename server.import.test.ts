@@ -34,7 +34,7 @@ test("import preview is read-only; explicit create preserves the draft and never
     const loaded = await harness.behavior.callRpc("souls_get", { idOrName: soul.id }) as { soul: Soul };
     assert.equal(loaded.soul.personality, preview.draft.personality);
     assert.deepEqual(await harness.behavior.callRpc("souls_thread_get", { threadId: "thread-1" }), {
-      soul: null, allowDelegation: false, status: "unknown", session: null,
+      soul: null, allowDelegation: false, allowHiring: false, hiringOverride: null, pinnedRevision: null, status: "unknown", session: null,
     });
     assert.equal(harness.inspection.sdk.callsTo("threads.spawn").length, 0);
     assert.equal(harness.inspection.sdk.callsTo("threads.update").length, 0);

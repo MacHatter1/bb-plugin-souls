@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { INSTRUCTION_BUDGET, PERSONALITY_MAX_LENGTH, renderSoulInstructions, renderSoulPersona, soulDirective, soulSchema } from "./shared.ts";
+import { INSTRUCTION_BUDGET, PERSONALITY_MAX_LENGTH, renderAttachedPersona, renderCompactionReminder, renderSoulInstructions, renderSoulPersona, soulDirective, soulSchema } from "./shared.ts";
 
 const soul = (patch = {}) => soulSchema.parse({
   id: "soul_test", name: "Marshal", origin: "manual", createdAt: "", updatedAt: "",
@@ -39,8 +39,8 @@ test("the persona is never cut, even with every field at its maximum", () => {
 
 test("the injected instructions only point at the persona and fit BB's limit", () => {
   const value = longest();
-  for (const consent of [false, true]) {
-    const text = renderSoulInstructions(value, consent);
+  for (const [consent, hiring] of [[false, false], [false, true], [true, false], [true, true]]) {
+    const text = renderSoulInstructions(value, consent, hiring);
     assert.ok(text.length <= INSTRUCTION_BUDGET, `${text.length} characters`);
     assert.match(text, /souls_get/);
     assert.ok(text.includes(value.id));
@@ -71,5 +71,14 @@ test("consent is explicit, scoped to this thread and never widens other permissi
     assert.match(text, /this thread/);
     assert.match(text, /not inherited/i);
     assert.match(text, /push|deploy/);
+  }
+});
+
+test("hiring authorization needs the current thread's effective permission, even when a saved soul allows it", () => {
+  const value = soul({ allowHiring: true, defaultAllowDelegation: true });
+  for (const render of [renderSoulInstructions, renderSoulPersona, renderAttachedPersona, renderCompactionReminder]) {
+    assert.match(render(value), /Automatic creation of souls is not authorized/);
+    assert.match(render(value, false, true), /user allows you to create and save specialist souls/i);
+    assert.match(render(value, false, true), /Hiring does not authorize spawning, editing or deleting souls/);
   }
 });

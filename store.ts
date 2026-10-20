@@ -6,13 +6,17 @@
 // `bb.storage.database()` returns) is sync by nature, so the whole store is.
 import { randomUUID } from "node:crypto";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import { z } from "zod";
 import { evalRunSchema, type EvalRun } from "./eval.ts";
 import {
   SOUL_ID_PREFIX,
   slugify,
+  soulDraftSchema,
   soulPatchSchema,
   soulSchema,
+  changedFields, soulHireRecordSchema, soulTaskSchema, soulUsageSchema, soulVersionSchema,
   type Soul,
+  type SoulUserSettings, type SoulHire,
   type SoulDraft,
   type SoulPatch,
   type SoulResolution,
@@ -101,6 +105,16 @@ export function createSoulStore(bb: BbPluginApi, db: Database) {
      )`,
     // Rows from before this column are 0, so the first prune clears them.
     `ALTER TABLE eval_threads ADD COLUMN created_at_ms INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE thread_souls ADD COLUMN allow_hiring INTEGER`,
+    `ALTER TABLE thread_souls ADD COLUMN pinned_revision INTEGER`,
+    `CREATE TABLE soul_versions (soul_id TEXT NOT NULL, revision INTEGER NOT NULL, body TEXT NOT NULL, changes TEXT NOT NULL, recorded_at TEXT NOT NULL, PRIMARY KEY(soul_id, revision))`,
+    `CREATE TABLE soul_tasks (id TEXT PRIMARY KEY, parent_thread_id TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, finished_at TEXT)`,
+    `CREATE UNIQUE INDEX soul_tasks_active ON soul_tasks(parent_thread_id) WHERE status = 'active'`,
+    `CREATE TABLE soul_hires (soul_id TEXT PRIMARY KEY, employer_soul_id TEXT NOT NULL, task_id TEXT NOT NULL, body TEXT NOT NULL)`,
+    `CREATE INDEX soul_hires_task ON soul_hires(task_id)`,
+    `CREATE TABLE soul_usage (soul_id TEXT NOT NULL, thread_id TEXT NOT NULL, parent_thread_id TEXT, at TEXT NOT NULL, PRIMARY KEY(soul_id, thread_id))`,
+    `CREATE TABLE soul_spawns (id TEXT PRIMARY KEY, parent_thread_id TEXT NOT NULL, task_id TEXT NOT NULL, key TEXT NOT NULL, soul_id TEXT NOT NULL, thread_id TEXT, status TEXT NOT NULL, warning TEXT NOT NULL, UNIQUE(parent_thread_id, task_id, key))`,
+    `DELETE FROM soul_versions WHERE soul_id NOT IN (SELECT id FROM souls)`,
   ]);
 
   function parse(row: Row): Soul | null {
@@ -117,13 +131,13 @@ export function createSoulStore(bb: BbPluginApi, db: Database) {
     }
   }
 
-  function list(): Soul[] {
+  function list(includeArchived = false): Soul[] {
     const rows = db
       .prepare(`SELECT id, body FROM souls ORDER BY name COLLATE NOCASE ASC`)
       .all() as Row[];
     return rows.flatMap((row) => {
       const soul = parse(row);
-      return soul === null ? [] : [soul];
+      return soul === null || (!includeArchived && soul.archivedAt !== null) ? [] : [soul];
     });
   }
 
@@ -145,20 +159,17 @@ export function createSoulStore(bb: BbPluginApi, db: Database) {
     if (byName !== undefined) return parse(byName);
     const slug = slugify(key);
     if (slug === "") return null;
-    const matches = list().filter((soul) => slugify(soul.name) === slug);
+    const matches = list(true).filter((soul) => slugify(soul.name) === slug);
     return matches.length === 1 ? (matches[0] as Soul) : null;
   }
 
   function insert(
     draft: SoulDraft,
     origin: Soul["origin"],
+    consent: Partial<SoulUserSettings> = {},
+    hire: SoulHire | null = null,
   ): Soul {
-    const filled = soulSchema.omit({
-      id: true,
-      origin: true,
-      createdAt: true,
-      updatedAt: true,
-    }).parse(draft);
+    const filled = soulDraftSchema.parse(draft);
     const lower = filled.name.trim().toLowerCase();
     if (lower === "") throw new Error("A soul needs a name.");
     const taken = db
@@ -166,8 +177,12 @@ export function createSoulStore(bb: BbPluginApi, db: Database) {
       .get(lower) as { id: string } | undefined;
     if (taken !== undefined) throw new SoulNameTaken(filled.name.trim());
     const now = new Date().toISOString();
-    const soul: Soul = {
+    const soul = soulSchema.parse({
       ...filled,
+      defaultAllowDelegation: consent.defaultAllowDelegation ?? false,
+      allowHiring: consent.allowHiring ?? false,
+      team: consent.team,
+      hire,
       name: filled.name.trim(),
       // Pin the portrait seed the draft was previewed with (its name), so the
       // saved soul keeps the face it was approved with, even after a rename.
@@ -176,7 +191,7 @@ export function createSoulStore(bb: BbPluginApi, db: Database) {
       origin,
       createdAt: now,
       updatedAt: now,
-    };
+    });
     db.prepare(
       `INSERT INTO souls (id, name, name_lower, body, created_at, updated_at)
        VALUES (@id, @name, @name_lower, @body, @created_at, @updated_at)`,
@@ -188,10 +203,27 @@ export function createSoulStore(bb: BbPluginApi, db: Database) {
       created_at: now,
       updated_at: now,
     });
+    recordVersion(soul, ["Created"]);
     return soul;
   }
 
-  function update(id: string, patch: SoulPatch): Soul | null {
+  function recordVersion(soul: Soul, changes: string[]): void {
+    db.prepare(`INSERT OR IGNORE INTO soul_versions (soul_id, revision, body, changes, recorded_at) VALUES (?, ?, ?, ?, ?)`)
+      .run(soul.id, soul.revision, JSON.stringify(soul), JSON.stringify(changes), soul.updatedAt);
+  }
+
+  function saveSoul(current: Soul, next: Soul, changes: string[]): Soul {
+    return db.transaction(() => {
+      recordVersion(current, ["Initial snapshot"]);
+      const saved = soulSchema.parse({ ...next, revision: current.revision + 1, updatedAt: new Date().toISOString() });
+      db.prepare(`UPDATE souls SET name = ?, name_lower = ?, body = ?, updated_at = ? WHERE id = ?`)
+        .run(saved.name, saved.name.toLowerCase(), JSON.stringify(saved), saved.updatedAt, saved.id);
+      recordVersion(saved, changes);
+      return saved;
+    })();
+  }
+
+  function update(id: string, patch: SoulPatch, consent: Partial<SoulUserSettings> = {}): Soul | null {
     const current = find(id);
     if (current === null) return null;
     const clean = soulPatchSchema.parse(patch);
@@ -207,14 +239,16 @@ export function createSoulStore(bb: BbPluginApi, db: Database) {
     const next: Soul = {
       ...current,
       ...clean,
+      defaultAllowDelegation: consent.defaultAllowDelegation ?? current.defaultAllowDelegation,
+      allowHiring: consent.allowHiring ?? current.allowHiring,
+      team: consent.team ?? current.team,
       name: nextName,
       updatedAt: new Date().toISOString(),
     };
-    soulSchema.parse(next);
-    db.prepare(
-      `UPDATE souls SET name = ?, name_lower = ?, body = ?, updated_at = ? WHERE id = ?`,
-    ).run(next.name, lower, JSON.stringify(next), next.updatedAt, current.id);
-    return next;
+    const changes = changedFields(soulDraftSchema.parse(current), soulDraftSchema.parse(next));
+    if (current.allowHiring !== next.allowHiring || current.defaultAllowDelegation !== next.defaultAllowDelegation) changes.push("Permissions");
+    if (JSON.stringify(current.team) !== JSON.stringify(next.team)) changes.push("Team settings");
+    return saveSoul(current, next, changes);
   }
 
   function remove(id: string): boolean {
@@ -222,6 +256,7 @@ export function createSoulStore(bb: BbPluginApi, db: Database) {
     if (soul === null) return false;
     db.prepare(`UPDATE thread_souls SET soul_id = '', allow_delegation = 0 WHERE soul_id = ?`).run(soul.id);
     db.prepare(`DELETE FROM child_intents WHERE soul_id = ?`).run(soul.id);
+    db.prepare(`DELETE FROM soul_versions WHERE soul_id = ?`).run(soul.id);
     db.prepare(`DELETE FROM souls WHERE id = ?`).run(soul.id);
     return true;
   }
@@ -233,6 +268,7 @@ export function createSoulStore(bb: BbPluginApi, db: Database) {
   function armChild(parentThreadId: string, soulId: string): Soul | null {
     const soul = find(soulId);
     if (soul === null) return null;
+    if (soul.archivedAt !== null) throw new Error(`${soul.name} is archived. Restore it before assigning a child.`);
     const now = Date.now();
     db.prepare(`DELETE FROM child_intents WHERE created_at_ms < ?`).run(
       now - CHILD_INTENT_TTL_MS,
@@ -285,6 +321,7 @@ export function createSoulStore(bb: BbPluginApi, db: Database) {
         | undefined;
       if (intent === undefined) return null;
       const soul = select(childThreadId, intent.soul_id);
+      if (soul !== null) recordChildUsage(soul.id, childThreadId, parentThreadId);
       db.prepare(`DELETE FROM child_intents WHERE id = ?`).run(intent.id);
       if (soul === null) {
         bb.log.warn(
@@ -303,7 +340,11 @@ export function createSoulStore(bb: BbPluginApi, db: Database) {
       .get(threadId) as ThreadRow | undefined;
     const id = row?.soul_id ?? (sourceThreadId ? directThreadId(sourceThreadId) : null);
     if (id === null || id === undefined) return null;
-    return find(id);
+    const current = find(id);
+    if (current === null) return null;
+    const pin = bindingOptions(row === undefined && sourceThreadId ? sourceThreadId : threadId).pinnedRevision;
+    const snapshot = pin === null ? null : version(current.id, pin);
+    return snapshot === null ? current : { ...current, ...soulDraftSchema.parse(snapshot), revision: snapshot.revision, updatedAt: snapshot.updatedAt };
   }
 
   function directThreadId(threadId: string): string | null {
@@ -329,25 +370,155 @@ export function createSoulStore(bb: BbPluginApi, db: Database) {
     return row?.allow_delegation === 1;
   }
 
-  function select(threadId: string, soulId: string | null, allowDelegation?: boolean): Soul | null {
+  function bindingOptions(threadId: string) {
+    const row = db.prepare(`SELECT allow_hiring, pinned_revision FROM thread_souls WHERE thread_id = ?`).get(threadId);
+    if (row === undefined) return { hiringOverride: null, pinnedRevision: null };
+    const parsed = z.object({ allow_hiring: z.number().nullable(), pinned_revision: z.number().nullable() }).parse(row);
+    return { hiringOverride: parsed.allow_hiring === null ? null : parsed.allow_hiring === 1, pinnedRevision: parsed.pinned_revision };
+  }
+
+  function hiringForThread(threadId: string): boolean {
+    const soul = soulForThread(threadId);
+    return soul !== null && soul.archivedAt === null && (bindingOptions(threadId).hiringOverride ?? soul.allowHiring);
+  }
+
+  function select(threadId: string, soulId: string | null, allowDelegation?: boolean, options: { hiringOverride?: boolean | null; pinnedRevision?: number | null } = {}): Soul | null {
     if (soulId === null) {
       // An explicit no-soul row suppresses side-chat inheritance too.
       db.prepare(`INSERT INTO thread_souls (thread_id, soul_id, updated_at, allow_delegation)
         VALUES (?, '', ?, 0) ON CONFLICT(thread_id) DO UPDATE SET soul_id = '',
-          updated_at = excluded.updated_at, allow_delegation = 0`)
+          updated_at = excluded.updated_at, allow_delegation = 0, allow_hiring = NULL, pinned_revision = NULL`)
         .run(threadId, new Date().toISOString());
       return null;
     }
     const soul = find(soulId);
     if (soul === null) return null;
-    const consent = allowDelegation ??
-      (directThreadId(threadId) === soul.id && delegationForThread(threadId));
+    const same = directThreadId(threadId) === soul.id;
+    if (soul.archivedAt !== null && !same) throw new Error(`${soul.name} is archived. Restore it before assigning it to a new thread.`);
+    const previous = same ? bindingOptions(threadId) : { hiringOverride: null, pinnedRevision: null };
+    const pin = options.pinnedRevision === undefined ? previous.pinnedRevision : options.pinnedRevision;
+    if (pin !== null && version(soul.id, pin) === null) throw new Error(`No revision ${pin} for ${soul.name}.`);
+    const hiring = options.hiringOverride === undefined ? previous.hiringOverride : options.hiringOverride;
+    const consent = allowDelegation ?? (same
+      ? delegationForThread(threadId)
+      : soul.defaultAllowDelegation);
     db.prepare(
-      `INSERT INTO thread_souls (thread_id, soul_id, updated_at, allow_delegation) VALUES (?, ?, ?, ?)
+      `INSERT INTO thread_souls (thread_id, soul_id, updated_at, allow_delegation, allow_hiring, pinned_revision) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(thread_id) DO UPDATE SET soul_id = excluded.soul_id,
-         updated_at = excluded.updated_at, allow_delegation = excluded.allow_delegation`,
-    ).run(threadId, soul.id, new Date().toISOString(), consent ? 1 : 0);
-    return soul;
+         updated_at = excluded.updated_at, allow_delegation = excluded.allow_delegation, allow_hiring = excluded.allow_hiring, pinned_revision = excluded.pinned_revision`,
+    ).run(threadId, soul.id, new Date().toISOString(), consent ? 1 : 0, hiring === null ? null : hiring ? 1 : 0, pin);
+    db.prepare(`INSERT INTO soul_usage (soul_id, thread_id, parent_thread_id, at) VALUES (?, ?, NULL, ?) ON CONFLICT(soul_id, thread_id) DO UPDATE SET at = excluded.at`)
+      .run(soul.id, threadId, new Date().toISOString());
+    return soulForThread(threadId);
+  }
+
+  function version(soulId: string, revision: number): Soul | null {
+    const current = find(soulId);
+    if (current === null) return null;
+    recordVersion(current, ["Initial snapshot"]);
+    const row = db.prepare(`SELECT body FROM soul_versions WHERE soul_id = ? AND revision = ?`).get(soulId, revision);
+    return row === undefined ? null : soulSchema.parse(JSON.parse(z.object({ body: z.string() }).parse(row).body));
+  }
+
+  function restoreVersion(soulId: string, revision: number): Soul {
+    const snapshot = version(soulId, revision);
+    if (snapshot === null) throw new Error(`No revision ${revision} for this soul.`);
+    const saved = update(soulId, soulDraftSchema.parse(snapshot));
+    if (saved === null) throw new Error("This soul no longer exists.");
+    return saved;
+  }
+
+  function history(soulId: string, offset = 0) {
+    const current = find(soulId);
+    if (current !== null) recordVersion(current, ["Initial snapshot"]);
+    const versions = db.prepare(`SELECT revision, recorded_at AS recordedAt, changes FROM soul_versions WHERE soul_id = ? ORDER BY revision DESC LIMIT 51 OFFSET ?`).all(soulId, offset)
+      .map((row) => { const raw = z.object({ revision: z.number(), recordedAt: z.string(), changes: z.string() }).parse(row); return soulVersionSchema.parse({ ...raw, changes: JSON.parse(raw.changes) }); });
+    const hires = db.prepare(`SELECT body FROM soul_hires WHERE soul_id = ? OR employer_soul_id = ? ORDER BY rowid DESC LIMIT 51 OFFSET ?`).all(soulId, soulId, offset)
+      .map((row) => soulHireRecordSchema.parse(JSON.parse(z.object({ body: z.string() }).parse(row).body)));
+    const usage = db.prepare(`SELECT thread_id AS threadId, parent_thread_id AS parentThreadId, at FROM soul_usage WHERE soul_id = ? ORDER BY at DESC LIMIT 51 OFFSET ?`).all(soulId, offset).map((row) => soulUsageSchema.parse(row));
+    return { versions: versions.slice(0, 50), hires: hires.slice(0, 50), usage: usage.slice(0, 50), nextOffset: Math.max(versions.length, hires.length, usage.length) > 50 ? offset + 50 : null };
+  }
+
+  function setArchived(soulId: string, archived: boolean): Soul {
+    const current = find(soulId);
+    if (current === null) throw new Error("This soul no longer exists.");
+    if ((current.archivedAt !== null) === archived) return current;
+    return saveSoul(current, { ...current, archivedAt: archived ? new Date().toISOString() : null }, [archived ? "Archived" : "Restored to library"]);
+  }
+
+  function promote(soulId: string): Soul {
+    const current = find(soulId);
+    if (current === null || current.hire === null) throw new Error("Only a hired soul can be promoted.");
+    return saveSoul(current, { ...current, archivedAt: null, hire: { ...current.hire, lifetime: "permanent" } }, ["Promoted to permanent"]);
+  }
+
+  function activeTask(parentThreadId: string) {
+    const row = db.prepare(`SELECT id, parent_thread_id AS parentThreadId, status, created_at AS createdAt, finished_at AS finishedAt FROM soul_tasks WHERE parent_thread_id = ? AND status = 'active'`).get(parentThreadId);
+    return row === undefined ? null : soulTaskSchema.parse(row);
+  }
+
+  function taskForThread(parentThreadId: string) {
+    const existing = activeTask(parentThreadId);
+    if (existing !== null) return existing;
+    const task = soulTaskSchema.parse({ id: `task_${randomUUID()}`, parentThreadId, status: "active", createdAt: new Date().toISOString(), finishedAt: null });
+    db.prepare(`INSERT INTO soul_tasks VALUES (?, ?, ?, ?, NULL)`).run(task.id, parentThreadId, task.status, task.createdAt);
+    return task;
+  }
+
+  function hire(draft: SoulDraft, parentThreadId: string, reason: string, lifetime: SoulHire["lifetime"]): Soul {
+    return db.transaction(() => {
+      const employer = soulForThread(parentThreadId);
+      if (employer === null || !hiringForThread(parentThreadId)) throw new Error("Automatic hiring is not authorized for this thread.");
+      const task = taskForThread(parentThreadId);
+      const count = z.object({ n: z.number() }).parse(db.prepare(`SELECT count(*) AS n FROM soul_hires WHERE task_id = ?`).get(task.id)).n;
+      if (employer.team.maxHiresPerTask !== null && count >= employer.team.maxHiresPerTask) throw new Error(`Hiring limit reached: ${employer.team.maxHiresPerTask} new souls for this task. Reuse a saved roster member or finish the task before starting another.`);
+      const metadata: SoulHire = { employerSoulId: employer.id, employerName: employer.name, parentThreadId, taskId: task.id, reason, lifetime, createdAt: new Date().toISOString() };
+      const soul = insert(draft, "hired", {}, metadata);
+      db.prepare(`INSERT INTO soul_hires (soul_id, employer_soul_id, task_id, body) VALUES (?, ?, ?, ?)`)
+        .run(soul.id, employer.id, task.id, JSON.stringify({ ...metadata, soulId: soul.id, soulName: soul.name }));
+      return soul;
+    })();
+  }
+
+  function finishTask(parentThreadId: string): Soul[] {
+    return db.transaction(() => {
+      const task = activeTask(parentThreadId);
+      if (task === null) return [];
+      const archived = list(true).filter((soul) => soul.hire?.taskId === task.id && soul.hire.lifetime === "task" && soul.archivedAt === null).map((soul) => setArchived(soul.id, true));
+      db.prepare(`UPDATE soul_tasks SET status = 'finished', finished_at = ? WHERE id = ?`).run(new Date().toISOString(), task.id);
+      return archived;
+    })();
+  }
+
+  const spawnSchema = z.object({ id: z.string(), parentThreadId: z.string(), taskId: z.string(), key: z.string(), soulId: z.string(), threadId: z.string().nullable(), status: z.enum(["reserved", "bound", "released", "failed", "uncertain"]), warning: z.string() });
+  function spawnReceipt(id: string) {
+    const row = db.prepare(`SELECT id, parent_thread_id AS parentThreadId, task_id AS taskId, key, soul_id AS soulId, thread_id AS threadId, status, warning FROM soul_spawns WHERE id = ?`).get(id);
+    return row === undefined ? null : spawnSchema.parse(row);
+  }
+  function reserveSpawn(parentThreadId: string, key: string, soulId: string) {
+    return db.transaction(() => {
+      const task = taskForThread(parentThreadId);
+      const old = db.prepare(`SELECT id FROM soul_spawns WHERE parent_thread_id = ? AND task_id = ? AND key = ?`).get(parentThreadId, task.id, key);
+      if (old !== undefined) {
+        const receipt = spawnReceipt(z.object({ id: z.string() }).parse(old).id);
+        if (receipt === null) throw new Error("The saved child-spawn receipt is missing.");
+        if (receipt.status === "failed" && receipt.threadId === null && receipt.soulId === soulId) {
+          updateSpawn(receipt.id, null, "reserved");
+          return { fresh: true, receipt: { ...receipt, status: "reserved" as const, warning: "" } };
+        }
+        return { fresh: false, receipt };
+      }
+      const id = `spawn_${randomUUID()}`;
+      db.prepare(`INSERT INTO soul_spawns VALUES (?, ?, ?, ?, ?, NULL, 'reserved', '')`).run(id, parentThreadId, task.id, key, soulId);
+      return { fresh: true, receipt: spawnSchema.parse({ id, parentThreadId, taskId: task.id, key, soulId, threadId: null, status: "reserved", warning: "" }) };
+    })();
+  }
+  function updateSpawn(id: string, threadId: string | null, status: z.infer<typeof spawnSchema>["status"], warning = "") {
+    db.prepare(`UPDATE soul_spawns SET thread_id = ?, status = ?, warning = ? WHERE id = ?`).run(threadId, status, warning, id);
+  }
+  function recordChildUsage(soulId: string, threadId: string, parentThreadId: string) {
+    db.prepare(`INSERT INTO soul_usage VALUES (?, ?, ?, ?) ON CONFLICT(soul_id, thread_id) DO UPDATE SET parent_thread_id = excluded.parent_thread_id`)
+      .run(soulId, threadId, parentThreadId, new Date().toISOString());
   }
 
   /** Keep changes, not every turn: resolution is NOT proof of session injection. */
@@ -482,6 +653,8 @@ export function createSoulStore(bb: BbPluginApi, db: Database) {
     latestEvalRun,
     markEvalThread,
     isEvalThread,
+    hiringForThread, bindingOptions, version, restoreVersion, history, setArchived, promote,
+    activeTask, taskForThread, hire, finishTask, reserveSpawn, spawnReceipt, updateSpawn, recordChildUsage,
   };
 }
 
