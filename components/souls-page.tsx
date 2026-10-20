@@ -1,6 +1,13 @@
 // The Souls library: a list you can scan, and the soul itself beside it.
 // Hand-editing and the AI interview both start from here.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ThreadChat,
   useBbContext,
@@ -45,13 +52,14 @@ import {
   SoulLibraryCard,
   SoulProfileContent,
 } from "./soul-library";
+import { SoulTeamPanel } from "./soul-team";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { SoulPortrait } from "./soul-bits";
+import { SoulPortrait, SoulTabs } from "./soul-bits";
 import {
   Dialog,
   DialogContent,
@@ -464,13 +472,19 @@ function SoulDetail({
   onBack: () => void;
 }) {
   const [compareOpen, setCompareOpen] = useState(false);
+  const [view, setView] = useState<"persona" | "team" | "history">("persona");
+  const tabsId = useId();
+  const profileBody = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    profileBody.current?.scrollTo({ top: 0 });
+  }, [view]);
   const loaded = soul?.id === summary.id ? soul : null;
   const subject = loaded ?? summary;
   const pin = describeModelPin(subject.model);
   const updated = soulUpdatedLabel(subject.updatedAt);
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 border-b border-border bg-background px-5 py-5 @3xl/souls:px-7">
+      <div className="shrink-0 bg-background px-5 pt-5 @3xl/souls:px-7 @3xl/souls:pt-7">
         <Button
           variant="ghost"
           size="sm"
@@ -493,16 +507,25 @@ function SoulDetail({
               />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="hidden text-xs text-muted-foreground @3xl/souls:block">
-                Reusable persona
-              </p>
-              <h2
-                id="soul-profile-title"
-                tabIndex={-1}
-                className="mt-1 break-words text-xl font-semibold leading-tight [overflow-wrap:anywhere]"
-              >
-                {subject.name}
-              </h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2
+                  id="soul-profile-title"
+                  tabIndex={-1}
+                  className="break-words text-2xl font-semibold leading-tight tracking-tight [overflow-wrap:anywhere]"
+                >
+                  {subject.name}
+                </h2>
+                {subject.archivedAt !== null ? (
+                  <span className="rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground">
+                    Archived
+                  </span>
+                ) : loaded?.hire?.lifetime === "task" ? (
+                  <span className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground">
+                    <Icon name="Clock" className="size-3" />
+                    Temporary hire
+                  </span>
+                ) : null}
+              </div>
               {!subject.tagline ? null : (
                 <p className="mt-2 break-words text-sm leading-relaxed text-muted-foreground">
                   {subject.tagline}
@@ -510,9 +533,13 @@ function SoulDetail({
               )}
             </div>
           </div>
-          <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
-            <span className="rounded-md border border-border bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
-              {subject.origin === "interview" ? "Interviewed" : "Manual"}
+          <div className="mt-3 mb-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+            <span className="text-xs text-muted-foreground">
+              {subject.origin === "interview"
+                ? "Interviewed"
+                : subject.origin === "hired"
+                  ? "Hired"
+                  : "Manual"}
             </span>
             {threadCount === null ? (
               <span className="text-xs text-muted-foreground">
@@ -524,15 +551,15 @@ function SoulDetail({
               <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Icon name="MessageSquare" className="size-3.5" />
                 {threadCount === 0
-                  ? "Not selected on a thread"
-                  : `Selected on ${threadCount} ${threadCount === 1 ? "thread" : "threads"}`}
+                  ? "No threads yet"
+                  : `${threadCount} ${threadCount === 1 ? "thread" : "threads"}`}
               </span>
             )}
-            <div className="ml-auto flex gap-2">
+            <div className="ml-auto flex items-center gap-1">
               <Button
                 size="sm"
                 variant="outline"
-                className="h-9"
+                className="h-8 px-2.5"
                 disabled={loaded === null || deleting}
                 onClick={onEdit}
               >
@@ -542,7 +569,7 @@ function SoulDetail({
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-9"
+                className="h-8 px-2.5"
                 disabled={loaded === null || deleting}
                 onClick={() => setCompareOpen(true)}
               >
@@ -551,6 +578,7 @@ function SoulDetail({
               <Button
                 size="icon"
                 variant="ghost"
+                className="size-8 text-muted-foreground"
                 aria-label={`Delete ${subject.name}`}
                 disabled={deleting}
                 onClick={onAskDelete}
@@ -559,10 +587,28 @@ function SoulDetail({
               </Button>
             </div>
           </div>
+          <SoulTabs
+            id={tabsId}
+            label="Soul profile views"
+            value={view}
+            onChange={setView}
+            options={[
+              { value: "persona", label: "Persona", icon: "UserRound" },
+              { value: "team", label: "Team", icon: "Workflow" },
+              { value: "history", label: "History", icon: "ClockArrowDown" },
+            ]}
+          />
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6 @3xl/souls:px-7">
+      <div
+        ref={profileBody}
+        id={`${tabsId}-panel`}
+        role="tabpanel"
+        aria-labelledby={`${tabsId}-${view}`}
+        tabIndex={0}
+        className="min-h-0 flex-1 overflow-y-auto px-5 py-6 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring @3xl/souls:px-7"
+      >
         <div className="mx-auto max-w-3xl space-y-7">
           {error !== null ? (
             <div
@@ -594,11 +640,13 @@ function SoulDetail({
                 className="h-48 rounded-xl bg-muted/40 motion-safe:animate-pulse"
               />
             </div>
-          ) : (
+          ) : view === "persona" ? (
             <SoulProfileContent soul={loaded} onEdit={onEdit} />
+          ) : (
+            <SoulTeamPanel key={loaded.id} soul={loaded} view={view} />
           )}
 
-          {pin === null ? null : (
+          {view !== "team" || pin === null ? null : (
             <section className="rounded-xl border border-border bg-muted/20 p-4">
               <h3 className="flex items-center gap-2 text-sm font-semibold">
                 <Icon name="Code" className="size-4 text-muted-foreground" />
@@ -608,16 +656,14 @@ function SoulDetail({
                 {pin}
               </p>
               <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                An advisory preference. Choosing this soul in the composer can
-                apply it; comparisons use the project's model.
+                Applied when you choose this soul in the composer or start a
+                managed soul child. If unavailable, children use the parent's
+                model.
               </p>
             </section>
           )}
-          <div className="flex flex-col gap-2 border-t border-border pt-4 text-xs leading-relaxed text-muted-foreground">
-            <p>
-              Choose this soul from a thread's + menu. Selection alone never
-              grants delegation consent.
-            </p>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4 text-xs leading-relaxed text-muted-foreground">
+            <p>Choose this soul from a thread's + menu.</p>
             {updated === null ? null : (
               <time dateTime={subject.updatedAt}>Updated {updated}</time>
             )}
@@ -686,7 +732,8 @@ function SoulDetail({
 export function SoulsPage({ subPath = "" }: Partial<PluginNavPanelProps>) {
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
-  const { souls, error, refetch } = useSouls();
+  const { souls, error, refetch } = useSouls(true);
+  const [showArchived, setShowArchived] = useState(false);
   const usage = useSoulSelectionState();
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -719,8 +766,18 @@ export function SoulsPage({ subPath = "" }: Partial<PluginNavPanelProps>) {
   const effectiveFilter =
     filter === "in-use" && usage.counts === null ? "all" : filter;
   const visible = useMemo(
-    () => librarySouls(souls ?? [], query, effectiveFilter, sort, usage.counts),
-    [souls, query, effectiveFilter, sort, usage.counts],
+    () =>
+      librarySouls(
+        (souls ?? []).filter(
+          (soul) =>
+            showArchived || soul.archivedAt === null || soul.id === subPath,
+        ),
+        query,
+        effectiveFilter,
+        sort,
+        usage.counts,
+      ),
+    [souls, query, effectiveFilter, sort, usage.counts, showArchived, subPath],
   );
   const missingLink =
     subPath !== "" &&
@@ -788,13 +845,15 @@ export function SoulsPage({ subPath = "" }: Partial<PluginNavPanelProps>) {
     <div className="@container/souls flex h-full min-h-0 min-w-0 flex-1 flex-col bg-background">
       <header
         className={cn(
-          "shrink-0 border-b border-border px-5 py-5 @3xl/souls:px-6",
+          "shrink-0 border-b border-border px-5 py-4 @3xl/souls:px-6",
           reading && "hidden @3xl/souls:block",
         )}
       >
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="text-xl font-semibold leading-tight">Your souls</h1>
+            <h1 className="text-xl font-semibold leading-tight tracking-tight">
+              Your souls
+            </h1>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
               Reusable personas for the way you work.
             </p>
@@ -813,10 +872,20 @@ export function SoulsPage({ subPath = "" }: Partial<PluginNavPanelProps>) {
           </Button>
         </div>
         {souls === null ? null : (
-          <p className="mt-3 text-xs text-muted-foreground">
-            {souls.length} {souls.length === 1 ? "soul" : "souls"}
-            {inUse === null ? "" : ` · ${inUse} in use`}
-          </p>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+            <p>
+              {souls.length} {souls.length === 1 ? "soul" : "souls"}
+              {inUse === null ? "" : `, ${inUse} in use`}
+            </p>
+            <label className="inline-flex cursor-pointer items-center gap-2">
+              <Checkbox
+                checked={showArchived}
+                onCheckedChange={(checked) => setShowArchived(checked === true)}
+                aria-label="Show archived"
+              />
+              Show archived
+            </label>
+          </div>
         )}
       </header>
 
@@ -901,7 +970,7 @@ export function SoulsPage({ subPath = "" }: Partial<PluginNavPanelProps>) {
           </div>
         </div>
       ) : (
-        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] @3xl/souls:grid-cols-[19rem_minmax(0,1fr)]">
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] @3xl/souls:grid-cols-[18rem_minmax(0,1fr)]">
           <aside
             ref={libraryPane}
             aria-label="Soul library"
@@ -957,7 +1026,7 @@ export function SoulsPage({ subPath = "" }: Partial<PluginNavPanelProps>) {
                       }
                       onClick={() => setFilter(value)}
                       className={cn(
-                        "rounded-md px-2.5 py-1.5 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
+                        "whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
                         effectiveFilter === value
                           ? "bg-background text-foreground shadow-sm"
                           : "text-muted-foreground hover:text-foreground",
@@ -969,7 +1038,7 @@ export function SoulsPage({ subPath = "" }: Partial<PluginNavPanelProps>) {
                 </div>
                 <select
                   aria-label="Sort souls"
-                  className="h-8 min-w-0 max-w-32 rounded-md border border-input bg-background px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="h-8 w-28 min-w-0 shrink-0 rounded-md border border-input bg-background px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   value={sort}
                   disabled={deleting}
                   onChange={(event) =>

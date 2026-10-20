@@ -45,12 +45,15 @@ import {
   describeSoulStatus,
   type ThreadSoulState,
   type Soul,
+  type SoulConsent,
+  soulTeamSchema, soulHistorySchema,
   type SoulDraftValue,
 } from "./shared.ts";
 import { ChildSoulQueueFull, createSoulStore, SoulNameTaken } from "./store.ts";
 import { ACTIVITIES, activityForItem, type Activity } from "./motion.ts";
 import { importAgentFile } from "./soul-import-formats.ts";
 import { importGithubAgentFile } from "./soul-import-github.ts";
+import { createSoulTeamTools, TEAM_TOOLS } from "./team-server.ts";
 
 const agentImportOutputSchema = z.object({
   agents: z.array(z.object({
@@ -67,6 +70,8 @@ const pendingOutputSchema = z.object({
   soul: nullableSummary,
   allowDelegation: z.boolean(),
   expiresAt: z.number().nullable(),
+  hiringOverride: z.boolean().nullable().default(null),
+  pinnedRevision: z.number().int().positive().nullable().default(null),
 });
 
 /** Value submitted by the delete confirmation in app.tsx. */
@@ -79,7 +84,9 @@ const reviewSubmitSchema = z.discriminatedUnion("action", [
       action: z.literal("approve"),
       /** Also bind this soul to the thread the card was shown in. */
       selectHere: z.boolean(),
-      allowDelegation: z.boolean().default(false),
+      allowDelegation: z.boolean().optional(),
+      defaultAllowDelegation: z.boolean().optional(),
+      allowHiring: z.boolean().optional(),
     })
     .strict(),
   z
@@ -92,7 +99,7 @@ const reviewSubmitSchema = z.discriminatedUnion("action", [
 
 export const rpcContract = defineRpcContract({
   souls_list: {
-    input: z.null(),
+    input: z.object({ includeArchived: z.boolean().default(false) }).nullable(),
     output: z.object({ souls: z.array(soulSummarySchema) }),
   },
   souls_get: {
@@ -114,12 +121,15 @@ export const rpcContract = defineRpcContract({
   souls_create: {
     input: z.object({
       draft: soulDraftSchema,
-      origin: z.enum(["interview", "manual"]),
+      origin: soulSchema.shape.origin,
+      defaultAllowDelegation: z.boolean().default(false),
+      allowHiring: z.boolean().default(false),
+      team: soulTeamSchema.optional(),
     }),
     output: z.object({ soul: soulSchema }),
   },
   souls_update: {
-    input: z.object({ id: z.string().min(1), patch: soulPatchSchema }),
+    input: z.object({ id: z.string().min(1), patch: soulPatchSchema, defaultAllowDelegation: z.boolean().optional(), allowHiring: z.boolean().optional(), team: soulTeamSchema.optional() }),
     output: z.object({ soul: soulSchema }),
   },
   souls_delete: {
@@ -139,8 +149,10 @@ export const rpcContract = defineRpcContract({
        * session with the new persona. A running thread is never stopped.
        */
       applyNow: z.boolean().default(false),
-      /** Explicit picker consent, never a persona field or agent-tool option. */
-      allowDelegation: z.boolean().default(false),
+      /** Omit to use the saved default for a new binding; false is an override. */
+      allowDelegation: z.boolean().optional(),
+      hiringOverride: z.boolean().nullable().optional(),
+      pinnedRevision: z.number().int().positive().nullable().optional(),
     }),
     output: z.object({
       soul: nullableSummary,
@@ -155,7 +167,7 @@ export const rpcContract = defineRpcContract({
     output: pendingOutputSchema,
   },
   souls_pending_set: {
-    input: z.object({ soulId: z.string().min(1).nullable(), allowDelegation: z.boolean().default(false) }),
+    input: z.object({ soulId: z.string().min(1).nullable(), allowDelegation: z.boolean().optional(), hiringOverride: z.boolean().nullable().optional(), pinnedRevision: z.number().int().positive().nullable().optional() }),
     output: pendingOutputSchema,
   },
   souls_selections: {
@@ -166,6 +178,11 @@ export const rpcContract = defineRpcContract({
       ),
     }),
   },
+  souls_history: { input: z.object({ soulId: z.string(), offset: z.number().int().nonnegative().default(0) }), output: soulHistorySchema },
+  souls_version: { input: z.object({ soulId: z.string(), revision: z.number().int().positive() }), output: z.object({ soul: soulSchema.nullable() }) },
+  souls_restore_version: { input: z.object({ soulId: z.string(), revision: z.number().int().positive() }), output: z.object({ soul: soulSchema }) },
+  souls_archive: { input: z.object({ soulId: z.string(), archived: z.boolean() }), output: z.object({ soul: soulSchema }) },
+  souls_promote: { input: z.object({ soulId: z.string() }), output: z.object({ soul: soulSchema }) },
   souls_eval_run: {
     input: z.object({
       soulId: z.string().min(1),
@@ -241,15 +258,22 @@ const SOUL_TOOLS = [
   "souls_get",
   "souls_eval",
   "souls_propose",
+  "souls_hire",
   "souls_update",
   "souls_delete",
   "souls_select",
   "souls_arm_child",
+  ...TEAM_TOOLS,
 ] as const;
 
 export default async function plugin(bb: BbPluginApi) {
   const db = bb.storage.database();
   const store = createSoulStore(bb, db);
+
+  // A side chat can read its source's persona, but does not inherit authority.
+  function hiringForThread(threadId: string): boolean {
+    return store.hiringForThread(threadId);
+  }
 
   function changed() {
     bb.realtime.publish(SOULS_CHANGED, { count: store.list().length });
@@ -259,7 +283,7 @@ export default async function plugin(bb: BbPluginApi) {
   // here — in memory, mirrored to kv so a reload keeps it — and the dispatch
   // hook below binds it to the thread the user is about to start.
   let pending =
-    (await bb.storage.kv.get<{ soulId: string; at: number; allowDelegation?: boolean }>(PENDING_KEY)) ??
+    (await bb.storage.kv.get<{ soulId: string; at: number; allowDelegation?: boolean; hiringOverride?: boolean | null; pinnedRevision?: number | null }>(PENDING_KEY)) ??
     null;
 
   // Compactions from before Souls first watched a thread are history. Kept in
@@ -274,10 +298,13 @@ export default async function plugin(bb: BbPluginApi) {
       void bb.storage.kv.delete(PENDING_KEY).catch(() => undefined);
       return null;
     }
-    return store.find(pending.soulId);
+    const soul = store.find(pending.soulId);
+    if (soul === null || pending.pinnedRevision == null) return soul;
+    const snapshot = store.version(soul.id, pending.pinnedRevision);
+    return snapshot === null ? soul : { ...soul, ...soulDraftSchema.parse(snapshot), revision: snapshot.revision, updatedAt: snapshot.updatedAt };
   }
 
-  async function setPending(soulId: string | null, allowDelegation = false): Promise<Soul | null> {
+  async function setPending(soulId: string | null, allowDelegation?: boolean, options: { hiringOverride?: boolean | null; pinnedRevision?: number | null } = {}): Promise<Soul | null> {
     if (soulId === null) {
       pending = null;
       await bb.storage.kv.delete(PENDING_KEY);
@@ -286,10 +313,12 @@ export default async function plugin(bb: BbPluginApi) {
     }
     const soul = store.find(soulId);
     if (soul === null) return null;
-    pending = { soulId: soul.id, at: Date.now(), allowDelegation };
+    if (soul.archivedAt !== null) throw new Error("Restore this archived soul before selecting it.");
+    if (options.pinnedRevision != null && store.version(soul.id, options.pinnedRevision) === null) throw new Error("That revision no longer exists.");
+    pending = { soulId: soul.id, at: Date.now(), allowDelegation: allowDelegation ?? soul.defaultAllowDelegation, ...options };
     await bb.storage.kv.set(PENDING_KEY, pending);
     changed();
-    return soul;
+    return pendingSoul();
   }
 
   type ThreadRecord = { status: string | null; sourceThreadId: string | null; parentThreadId: string | null };
@@ -335,7 +364,7 @@ export default async function plugin(bb: BbPluginApi) {
   async function threadSoulState(threadId: string): Promise<ThreadSoulState> {
     const soul = store.soulForThread(threadId, await sourceThreadOf(threadId));
     const allowDelegation = soul !== null && store.delegationForThread(threadId);
-    const base = { soul: soul === null ? null : toSummary(soul), allowDelegation, session: null };
+    const base = { soul: soul === null ? null : toSummary(soul), allowDelegation, allowHiring: hiringForThread(threadId), ...store.bindingOptions(threadId), session: null };
     try {
       const rows = await bb.sdk.threads.events.list({
         threadId, types: ["thread/identity"], order: "desc", limit: "1",
@@ -347,7 +376,7 @@ export default async function plugin(bb: BbPluginApi) {
       const snapshot = store.resolutionAt(threadId, identity.createdAt);
       if (!snapshot || identity.type !== "thread/identity") return { ...base, status: "unknown" };
       const session = { ...snapshot, providerThreadId: identity.data.providerThreadId };
-      const expected = soul === null ? "" : renderSoulInstructions(soul, allowDelegation);
+      const expected = soul === null ? "" : renderSoulInstructions(soul, allowDelegation, hiringForThread(threadId));
       const matches = snapshot.instructionHash === instructionHash(expected) &&
         snapshot.soulId === (soul?.id ?? null) && snapshot.soulUpdatedAt === (soul?.updatedAt ?? null);
       return { ...base, session, status: matches ? (soul === null ? "none" : "injected") : "outdated" };
@@ -553,7 +582,7 @@ export default async function plugin(bb: BbPluginApi) {
             mode: "steer",
             input: [{
               type: "text",
-              text: renderCompactionReminder(soul, store.delegationForThread(thread.id)),
+              text: renderCompactionReminder(soul, store.delegationForThread(thread.id), hiringForThread(thread.id)),
               mentions: [],
               visibility: "agent-only",
             }],
@@ -593,17 +622,20 @@ export default async function plugin(bb: BbPluginApi) {
     },
     async resolve(itemId) {
       const [soulId = "", threadId] = itemId.split("~");
-      const soul = store.find(soulId);
-      if (soul === null) throw new Error("That soul no longer exists.");
+      const found = store.find(soulId);
+      if (found === null) throw new Error("That soul no longer exists.");
+      const selected = threadId === undefined ? null : store.soulForThread(threadId, await sourceThreadOf(threadId));
+      const soul = selected?.id === found.id ? selected : found;
       if (threadId === undefined)
         return { context: renderAttachedPersona(soul) };
-      const consent = store.soulForThread(threadId)?.id === soul.id && store.delegationForThread(threadId);
+      const consent = selected?.id === soul.id && store.delegationForThread(threadId);
+      const allowHiring = selected?.id === soul.id && hiringForThread(threadId);
       const saved = await compactionState(threadId);
       if (saved?.pending === true) {
         await saveCompactionState(threadId, { ...saved, attachedAt: Date.now() }, saved);
-        return { context: renderCompactionReminder(soul, consent) };
+        return { context: renderCompactionReminder(soul, consent, allowHiring) };
       }
-      return { context: renderAttachedPersona(soul, consent) };
+      return { context: renderAttachedPersona(soul, consent, allowHiring) };
     },
   });
 
@@ -833,17 +865,17 @@ export default async function plugin(bb: BbPluginApi) {
   // --- rpc: what app.tsx calls ---------------------------------------------
 
   bb.rpc.register(rpcContract, {
-    souls_list: () => ({ souls: store.list().map((soul) => toSummary(soul)) }),
+    souls_list: (input) => ({ souls: store.list(input?.includeArchived ?? false).map((soul) => toSummary(soul)) }),
     souls_get: ({ idOrName }) => ({ soul: store.find(idOrName) }),
     souls_import_preview: ({ source, filename, format }) => importAgentFile(source, filename, format),
     souls_import_github: ({ url, format }) => importGithubAgentFile(url, globalThis.fetch, format),
-    souls_create: ({ draft, origin }) => {
-      const soul = store.insert(draft, origin);
+    souls_create: ({ draft, origin, defaultAllowDelegation, allowHiring, team }) => {
+      const soul = store.insert(draft, origin, { defaultAllowDelegation, allowHiring, team });
       changed();
       return { soul };
     },
-    souls_update: ({ id, patch }) => {
-      const soul = store.update(id, patch);
+    souls_update: ({ id, patch, defaultAllowDelegation, allowHiring, team }) => {
+      const soul = store.update(id, patch, { defaultAllowDelegation, allowHiring, team });
       if (soul === null) throw new Error(`No soul with id ${id}`);
       changed();
       return { soul };
@@ -854,10 +886,10 @@ export default async function plugin(bb: BbPluginApi) {
       return { removed };
     },
     souls_thread_get: ({ threadId }) => threadSoulState(threadId),
-    souls_thread_set: async ({ threadId, soulId, applyNow, allowDelegation }) => {
+    souls_thread_set: async ({ threadId, soulId, applyNow, allowDelegation, hiringOverride, pinnedRevision }) => {
       if (soulId !== null && store.find(soulId) === null)
         throw new Error(`No soul with id ${soulId}`);
-      const soul = store.select(threadId, soulId, allowDelegation);
+      const soul = store.select(threadId, soulId, allowDelegation, { hiringOverride, pinnedRevision });
       changed();
       if (!applyNow)
         return {
@@ -892,16 +924,20 @@ export default async function plugin(bb: BbPluginApi) {
         soul: soul === null ? null : toSummary(soul),
         allowDelegation: soul !== null && pending?.allowDelegation === true,
         expiresAt: soul === null || pending === null ? null : pending.at + PENDING_TTL_MS,
+        hiringOverride: pending?.hiringOverride ?? null,
+        pinnedRevision: pending?.pinnedRevision ?? null,
       };
     },
-    souls_pending_set: async ({ soulId, allowDelegation }) => {
-      const soul = await setPending(soulId, allowDelegation);
+    souls_pending_set: async ({ soulId, allowDelegation, hiringOverride, pinnedRevision }) => {
+      const soul = await setPending(soulId, allowDelegation, { hiringOverride, pinnedRevision });
       if (soulId !== null && soul === null)
         throw new Error(`No soul with id ${soulId}`);
       return {
         soul: soul === null ? null : toSummary(soul),
-        allowDelegation: soul !== null && allowDelegation,
+        allowDelegation: soul !== null && pending?.allowDelegation === true,
         expiresAt: soul === null || pending === null ? null : pending.at + PENDING_TTL_MS,
+        hiringOverride: pending?.hiringOverride ?? null,
+        pinnedRevision: pending?.pinnedRevision ?? null,
       };
     },
     souls_selections: () => ({
@@ -909,6 +945,11 @@ export default async function plugin(bb: BbPluginApi) {
         .selections()
         .map(({ threadId, soul }) => ({ threadId, soul: toSummary(soul) })),
     }),
+    souls_history: ({ soulId, offset }) => store.history(soulId, offset),
+    souls_version: ({ soulId, revision }) => ({ soul: store.version(soulId, revision) }),
+    souls_restore_version: ({ soulId, revision }) => { const soul = store.restoreVersion(soulId, revision); changed(); return { soul }; },
+    souls_archive: ({ soulId, archived }) => { const soul = store.setArchived(soulId, archived); changed(); return { soul }; },
+    souls_promote: ({ soulId }) => { const soul = store.promote(soulId); changed(); return { soul }; },
     souls_eval_show: async ({ runId }) => {
       const run = store.getEvalRun(runId);
       if (run === null) throw new Error(`No comparison ${runId}.`);
@@ -958,7 +999,7 @@ export default async function plugin(bb: BbPluginApi) {
         `configure thread=${context.thread.id} provider=${context.provider.id} soul=${soul?.id ?? "none"}`,
       );
       const allowDelegation = soul !== null && store.delegationForThread(context.thread.id);
-      const instructions = soul === null ? "" : renderSoulInstructions(soul, allowDelegation);
+      const instructions = soul === null ? "" : renderSoulInstructions(soul, allowDelegation, hiringForThread(context.thread.id));
       store.recordResolution(context.thread.id, {
         soulId: soul?.id ?? null, soulName: soul?.name ?? null,
         soulUpdatedAt: soul?.updatedAt ?? null, allowDelegation,
@@ -980,9 +1021,9 @@ export default async function plugin(bb: BbPluginApi) {
   // --- agent tools ---------------------------------------------------------
 
   const toolNotes = [
-    "Souls are reusable agent personas the user picks per thread. Selection alone is not delegation permission; only explicit user consent in the picker or review card grants thread-scoped delegation.",
-    "To create one, run the interview in the `souls` skill and finish with souls_propose. Every change to a soul, edits and deletes included, goes through a card the user approves.",
-    "When a child you are about to spawn should run as a soul, call souls_arm_child first, then `bb thread spawn --parent-self`. Skip it when no soul fits. One arm binds one child.",
+    "Souls are reusable agent personas the user picks per thread. Delegation consent comes from the user's saved soul default or per-thread checkbox. Tools apply that default but cannot change it; selecting a soul alone grants no additional consent.",
+    "When the current soul has the user's saved Allow hiring permission, souls_hire creates and saves a specialist automatically. Check souls_list for an existing fit first. New hires cannot hire or delegate by default. Otherwise create with souls_propose and a user review card. Edits and deletes always require a review card. Tools cannot change hiring permission.",
+    "Prefer souls_team to read a saved roster and souls_spawn_child for model selection and handoffs. For CLI child starts, call souls_arm_child first, then `bb thread spawn --parent-self`. One arm binds one child. Finish a completed task with souls_finish_task to archive temporary hires.",
   ].join(" ");
 
   bb.agents.registerTool({
@@ -1005,6 +1046,7 @@ export default async function plugin(bb: BbPluginApi) {
           `${soul.id === active?.id ? "* " : "  "}${soul.emoji} ${soul.name} (${soul.id})`,
           soul.tagline === "" ? null : `      ${soul.tagline}`,
           soul.role === "" ? null : `      job: ${soul.role}`,
+          `      child threads by default: ${soul.defaultAllowDelegation ? "allowed" : "not granted"}; hiring: ${soul.allowHiring ? "allowed" : "not granted"}`,
           pin === null ? null : `      model: ${pin}`,
         ]
           .filter((line): line is string => line !== null)
@@ -1014,7 +1056,7 @@ export default async function plugin(bb: BbPluginApi) {
         `${souls.length} soul(s). "*" marks the soul selected for this thread; bb souls status shows session injection evidence.`,
         ...lines,
         ``,
-        `Bind one to this thread with souls_select. Before spawning a child that should run as a soul, call souls_arm_child, then bb thread spawn --parent-self.`,
+        `Bind one here with souls_select. Read your preferred roster with souls_team; use souls_spawn_child for managed child assignments, or souls_arm_child before a CLI spawn.`,
       ].join("\n");
     },
   });
@@ -1030,14 +1072,16 @@ export default async function plugin(bb: BbPluginApi) {
       idOrName: z.string().min(1).describe("Soul id, name, or slug."),
     }),
     async execute({ idOrName }, ctx) {
-      const soul = store.find(idOrName);
-      if (soul === null) return `No soul matches "${idOrName}".`;
+      const found = store.find(idOrName);
+      if (found === null) return `No soul matches "${idOrName}".`;
+      const selected = store.soulForThread(ctx.threadId, await sourceThreadOf(ctx.threadId));
+      const soul = selected?.id === found.id ? selected : found;
       // The thread's own soul: this call is the agent loading its persona.
-      const own = store.soulForThread(ctx.threadId, await sourceThreadOf(ctx.threadId))?.id === soul.id;
+      const own = selected?.id === soul.id;
       return [
         `${soul.emoji} ${soul.name} — ${soul.id}`,
         `model: ${describeModelPin(soul.model) ?? "(no preference)"}`,
-        `origin: ${soul.origin}, updated ${soul.updatedAt}`,
+        `origin: ${soul.origin}, revision ${soul.revision}, updated ${soul.updatedAt}`,
         ...(own
           ? [
               `This thread runs as ${soul.name}: adopt the persona below now. If this is your first reply as ${soul.name}, start it with this line on its own so the user sees the persona load:`,
@@ -1046,7 +1090,7 @@ export default async function plugin(bb: BbPluginApi) {
           : []),
         ``,
         `--- persona ---`,
-        renderSoulPersona(soul, own && store.delegationForThread(ctx.threadId)),
+        renderSoulPersona(soul, own && store.delegationForThread(ctx.threadId), own && hiringForThread(ctx.threadId)),
         ...(own ? [] : [`--- injected instructions (they point at the persona) ---`, renderSoulInstructions(soul)]),
       ].join("\n");
     },
@@ -1124,10 +1168,53 @@ export default async function plugin(bb: BbPluginApi) {
     },
   });
 
+  bb.agents.registerTool({
+    name: "souls_hire",
+    description:
+      "Create and save a specialist soul automatically when this thread's selected soul has the user's Allow hiring permission. Check souls_list for an existing fit first. No review card is shown. The new soul starts with hiring and child-thread defaults off. This does not spawn a thread or change your persona; use souls_arm_child before an authorized child spawn. Edits and deletes still require review.",
+    presentation: {
+      label: { pending: "Hiring a soul", completed: "Hired a soul" },
+    },
+    parameters: z.object({
+      draft: soulDraftSchema.describe("The specialist's name, job, voice, expertise, principles, boundaries and optional model/look. Permissions cannot be set here."),
+      reason: z.string().max(2000).default("").describe("Why this task needs a new specialist instead of a roster member."),
+      lifetime: z.enum(["task", "permanent"]).default("task").describe("Task hires archive when souls_finish_task is called. Permanent hires stay in the library."),
+    }).strict(),
+    execute({ draft, reason, lifetime }, ctx) {
+      const employer = store.soulForThread(ctx.threadId);
+      if (employer === null || !hiringForThread(ctx.threadId)) {
+        return {
+          content: [{ type: "text", text: "Automatic hiring is not authorized for this thread's selected soul. The user can enable Allow hiring in that soul's editor or review card. Use souls_propose for a user-approved creation." }],
+          isError: true,
+        };
+      }
+      let hired: Soul;
+      try {
+        // Drafts contain persona fields only. Hires never inherit authority.
+        hired = store.hire(draft, ctx.threadId, reason, lifetime);
+      } catch (cause) {
+        if (!(cause instanceof SoulNameTaken)) return { content: [{ type: "text", text: cause instanceof Error ? cause.message : String(cause) }], isError: true };
+        const existing = store.find(draft.name.trim());
+        return {
+          content: [{ type: "text", text: `No new soul saved: ${cause.message}${existing === null ? "" : ` Existing soul: ${existing.id}. Use souls_get to inspect it and souls_arm_child to assign it to an authorized child.`}` }],
+          isError: true,
+        };
+      }
+      changed();
+      bb.log.info(`soul hired thread=${ctx.threadId} employer=${employer.id} hired=${hired.id}`);
+      return [
+        `Hired ${hired.emoji} ${hired.name} (${hired.id}), saved automatically under ${employer.name}'s hiring permission.`,
+        hired.role === "" ? null : `Job: ${hired.role}`,
+        "Hiring and child-thread defaults are off for the new soul. Only the user can grant those permissions.",
+        `Lifetime: ${lifetime}. ${lifetime === "task" ? "Call souls_finish_task when the task and its children are finished to archive temporary hires." : "This soul stays in the library."}`,
+        `To use it, call souls_spawn_child with soulId ${hired.id}, a stable task key and the work brief when delegation is authorized. No thread was spawned and your persona is unchanged.`,
+      ].filter((line): line is string => line !== null).join("\n");
+    },
+  });
+
   /**
-   * The card every agent-made change to a soul ends on: the user approves it,
-   * asks for changes, or dismisses it, and nothing is written before. Edits
-   * reach every thread running the soul, so an agent never saves one directly.
+   * Interviews and edits end on this card. Only souls_hire, gated by the
+   * user's saved permission, can create a soul without it.
    */
   async function reviewSoul(input: {
     threadId: string;
@@ -1139,7 +1226,7 @@ export default async function plugin(bb: BbPluginApi) {
     summary: string;
     openQuestions: readonly string[];
     /** Writes the approved soul. */
-    save: () => Soul;
+    save: (consent: SoulConsent) => Soul;
   }): Promise<string> {
     const { draft, existing } = input;
     // Ticked as they are, so approving an edit never quietly drops consent.
@@ -1167,11 +1254,16 @@ export default async function plugin(bb: BbPluginApi) {
               title: `Soul review: changes requested for ${draft.name}`,
               detail: decision.data.notes.slice(0, 600),
             };
+          const defaultAllowDelegation = decision.data.defaultAllowDelegation ?? existing?.defaultAllowDelegation ?? false;
+          const hiring = (decision.data.allowHiring ?? existing?.allowHiring ?? false) ? "allowed" : "not granted";
+          const allowDelegation = decision.data.allowDelegation ?? (runsHere
+            ? store.delegationForThread(input.threadId)
+            : defaultAllowDelegation);
           return {
             title: existing === null ? `Soul approved: ${draft.name}` : `Changes approved: ${draft.name}`,
             detail: decision.data.selectHere
-              ? `Saved and bound to this thread. Delegation consent: ${decision.data.allowDelegation ? "granted for this thread only" : "not granted"}.`
-              : "Saved.",
+              ? `Saved and bound to this thread. Delegation consent here: ${allowDelegation ? "granted" : "not granted"}. Default for new threads: ${defaultAllowDelegation ? "allowed" : "not granted"}. Hiring: ${hiring}.`
+              : `Saved. Delegation default for new threads: ${defaultAllowDelegation ? "allowed" : "not granted"}. Hiring: ${hiring}.`,
           };
         },
       },
@@ -1199,7 +1291,10 @@ export default async function plugin(bb: BbPluginApi) {
 
     let saved: Soul;
     try {
-      saved = input.save();
+      saved = input.save({
+        defaultAllowDelegation: decision.data.defaultAllowDelegation ?? existing?.defaultAllowDelegation ?? false,
+        allowHiring: decision.data.allowHiring ?? existing?.allowHiring ?? false,
+      });
     } catch (cause) {
       return cause instanceof SoulNameTaken
         ? `Approved, but not saved: ${cause.message}`
@@ -1218,14 +1313,14 @@ export default async function plugin(bb: BbPluginApi) {
         ? `It is not bound to this thread; the user can pick it from the composer's + menu (Choose a soul…), or you can call souls_select.`
         : `This thread now runs as ${saved.name}. Adopt the persona below immediately — a live agent session keeps the instructions it started with — and start your next reply with this line on its own so the user sees the persona load:\n${soulDirective(saved.id)}`,
       ``,
-      renderSoulPersona(saved, bound !== null && store.delegationForThread(input.threadId)),
+      renderSoulPersona(saved, bound !== null && store.delegationForThread(input.threadId), bound !== null && hiringForThread(input.threadId)),
     ].join("\n");
   }
 
   bb.agents.registerTool({
     name: "souls_propose",
     description:
-      "Put a drafted soul in front of the user as a review card and wait for their decision. Approve saves it (and can bind it to this thread); revise returns their notes so you can improve the draft and propose again. This is the only supported way to create a soul.",
+      "Put a drafted soul in front of the user as a review card and wait for their decision. Approve saves it (and can bind it to this thread); revise returns their notes so you can improve the draft and propose again. For automatic specialist creation when the current soul has Allow hiring permission, use souls_hire instead.",
     presentation: {
       label: {
         pending: "Waiting for the soul review",
@@ -1286,10 +1381,10 @@ export default async function plugin(bb: BbPluginApi) {
         existing: filling,
         summary,
         openQuestions,
-        save: () =>
+        save: (consent) =>
           filling === null
-            ? store.insert(next, "interview")
-            : (store.update(filling.id, next) ?? store.insert(next, "interview")),
+            ? store.insert(next, "interview", consent)
+            : (store.update(filling.id, next, consent) ?? store.insert(next, "interview", consent)),
       });
     },
   });
@@ -1333,8 +1428,8 @@ export default async function plugin(bb: BbPluginApi) {
         existing: soul,
         summary,
         openQuestions: [],
-        save: () => {
-          const next = store.update(soul.id, patch);
+        save: (consent) => {
+          const next = store.update(soul.id, patch, consent);
           if (next === null) throw new Error(`${soul.name} was deleted before the change was approved.`);
           return next;
         },
@@ -1428,7 +1523,7 @@ export default async function plugin(bb: BbPluginApi) {
         `Adopt the persona below immediately: a live agent session keeps the instructions it was constructed with. Start your next reply with this line on its own so the user sees the persona load:`,
         soulDirective(soul.id),
         ``,
-        renderSoulPersona(soul, store.delegationForThread(targetId)),
+        renderSoulPersona(soul, store.delegationForThread(targetId), hiringForThread(targetId)),
       ].join("\n");
     },
   });
@@ -1463,6 +1558,8 @@ export default async function plugin(bb: BbPluginApi) {
     },
   });
 
+  const teamTools = createSoulTeamTools(bb, store, changed);
+
   // --- new threads: bind the soul chosen on the compose screen -------------
 
   // Dispatch admission runs before anything is provisioned, so a binding made
@@ -1488,7 +1585,7 @@ export default async function plugin(bb: BbPluginApi) {
         Date.now() - context.thread.createdAt < PENDING_TTL_MS &&
         store.soulForThread(context.thread.id) === null
       ) {
-        const soul = store.select(context.thread.id, intent.soulId, intent.allowDelegation === true);
+        const soul = store.select(context.thread.id, intent.soulId, intent.allowDelegation === true, { hiringOverride: intent.hiringOverride, pinnedRevision: intent.pinnedRevision });
         pending = null;
         await bb.storage.kv.delete(PENDING_KEY);
         if (soul !== null) {
@@ -1501,7 +1598,8 @@ export default async function plugin(bb: BbPluginApi) {
       // A parent arms a soul, then spawns. This runs before the child is
       // provisioned, so the binding is in place for its first session.
       // Retries see the binding and do not take a second arm.
-      if (context.attempt === "start-turn") {
+      // Our managed/eval starts bind their own soul and must not consume a CLI arm.
+      if (context.attempt === "start-turn" && context.originPluginId !== bb.pluginId) {
         for (const parentId of spawningThreadIds(context)) {
           const soul = store.claimChild(
             parentId,
@@ -1517,6 +1615,7 @@ export default async function plugin(bb: BbPluginApi) {
           break;
         }
       }
+      return await teamTools.admit(context);
     } catch (cause) {
       // A hook that throws FAILS THE ATTEMPT. A persona preference is never
       // worth a user's message, so this swallows everything.
@@ -1605,6 +1704,8 @@ export default async function plugin(bb: BbPluginApi) {
       soul.tagline === "" ? null : `   ${soul.tagline}`,
       soul.role === "" ? null : `   job: ${soul.role}`,
       pin === null ? null : `   model: ${pin}`,
+      `   child threads by default: ${soul.defaultAllowDelegation ? "allowed" : "not granted"}`,
+      `   hiring: ${soul.allowHiring ? "allowed" : "not granted"}`,
       `   updated: ${soul.updatedAt}`,
     ]
       .filter((line): line is string => line !== null)
@@ -1682,13 +1783,15 @@ export default async function plugin(bb: BbPluginApi) {
       // (or a shell inside a thread workspace) binds the thread it is in.
       const threadId = flags.get("thread") ?? ctx.threadId;
       if (flags.has("allow-delegation"))
-        return fail("Delegation consent must be granted by the user in the soul picker or review card, not by an agent or CLI flag.");
+        return fail("Delegation consent must come from the user's saved soul default or picker/review checkbox, not an agent or CLI flag.");
+      if (flags.has("allow-hiring"))
+        return fail("Hiring permission must come from the user's soul editor or review card, not an agent or CLI flag.");
       // Run inside a thread, this is usually that thread's agent. A soul is
       // shared by every thread that runs it, so an agent changes one only
       // through a card the user approves, and binds only its own threads.
       if (ctx.threadId !== undefined && (command === "create" || command === "update" || command === "delete"))
         return fail(
-          `Inside a thread, souls change only through a card the user approves: use the souls_propose, souls_update or souls_delete tools. To change a soul yourself, use the Souls page, or run bb souls ${command} outside a thread.`,
+          `Inside a thread, use souls_hire to create a specialist when the current soul has Allow hiring permission. Otherwise use souls_propose, souls_update or souls_delete for a card the user approves. To change a soul yourself, use the Souls page, or run bb souls ${command} outside a thread.`,
         );
       if (
         ctx.threadId !== undefined && threadId !== undefined &&

@@ -4,17 +4,18 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../server";
 import type { ImportedAgent } from "../soul-import-formats";
-import { MAX_AGENT_IMPORT_LENGTH, type AgentImportFormat, type Soul } from "../shared";
+import { MAX_AGENT_IMPORT_LENGTH, soulTeamSchema, type AgentImportFormat, type Soul } from "../shared";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { SoulEditorDialog } from "./soul-form";
+import { SoulEditorDialog, type SoulEditorState } from "./soul-form";
 
 type SourceMethod = "upload" | "paste" | "github";
 type Phase = "source" | "choose" | "review";
+type ImportCandidate = ImportedAgent & SoulEditorState;
 const METHODS: { id: SourceMethod; label: string; icon: string }[] = [
   { id: "upload", label: "Upload file", icon: "ArrowUp" },
   { id: "paste", label: "Paste text", icon: "Copy" },
@@ -69,7 +70,7 @@ export function SoulImportDialog({ open, onOpenChange, onSaved }: {
   const [filename, setFilename] = useState("");
   const [format, setFormat] = useState<AgentImportFormat>("auto");
   const [githubUrl, setGithubUrl] = useState("");
-  const [candidates, setCandidates] = useState<ImportedAgent[]>([]);
+  const [candidates, setCandidates] = useState<ImportCandidate[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState<"file" | "preview" | null>(null);
@@ -163,7 +164,7 @@ export function SoulImportDialog({ open, onOpenChange, onSaved }: {
         ? await rpc.call("souls_import_github", { url: githubUrl.trim(), format })
         : await rpc.call("souls_import_preview", { source: activeSource, filename: activeFilename, format });
       if (ticket.current !== mine) return;
-      setCandidates(result.agents);
+      setCandidates(result.agents.map((agent) => ({ ...agent, defaultAllowDelegation: false, allowHiring: false, team: soulTeamSchema.parse({}) })));
       setSelected(result.agents.length === 1 ? 0 : null);
       setQuery("");
       setPhase(result.agents.length === 1 ? "review" : "choose");
@@ -397,10 +398,10 @@ export function SoulImportDialog({ open, onOpenChange, onSaved }: {
       </Dialog>
       {open && phase === "review" && chosen !== undefined ? (
         <SoulEditorDialog
-          open existing={null} initialDraft={chosen.draft} importWarnings={chosen.warnings}
+          open existing={null} initialState={chosen} importWarnings={chosen.warnings}
           onOpenChange={onOpenChange} onSaved={onSaved}
-          onBack={(draft) => {
-            setCandidates((current) => current.map((agent, index) => index === selected ? { ...agent, draft } : agent));
+          onBack={(state) => {
+            setCandidates((current) => current.map((agent, index) => index === selected ? { ...agent, ...state } : agent));
             setPhase(candidates.length > 1 ? "choose" : "source");
           }}
         />

@@ -21,21 +21,22 @@ export function SoulCreationOptions({
   const options = [
     {
       title: "Start an interview",
-      description: "Shape a persona with an agent's help.",
+      description:
+        "Describe the job, then shape its voice and boundaries in a chat.",
       icon: "MessageCirclePlus",
       action: onInterview,
       recommended: true,
     },
     {
       title: "Import an agent file",
-      description: "Bring an existing agent into your library.",
+      description: "Bring a TOML, Markdown or JSON agent into your library.",
       icon: "ArrowUp",
       action: onImport,
       recommended: false,
     },
     {
       title: "Write by hand",
-      description: "Set the job, voice and boundaries yourself.",
+      description: "Set the instructions and details yourself.",
       icon: "Edit",
       action: onManual,
       recommended: false,
@@ -44,8 +45,8 @@ export function SoulCreationOptions({
   return (
     <div
       className={cn(
-        "grid gap-3 text-left",
-        !compact && "@3xl/souls:grid-cols-3",
+        "grid grid-cols-2 gap-3 text-left",
+        !compact && "mx-auto max-w-xl",
       )}
     >
       {options.map((item) => (
@@ -54,32 +55,57 @@ export function SoulCreationOptions({
           type="button"
           onClick={item.action}
           className={cn(
-            "group flex min-w-0 items-start gap-3 rounded-xl border border-border p-4 text-left outline-none transition-colors hover:border-foreground/25 hover:bg-state-hover focus-visible:ring-2 focus-visible:ring-ring",
-            compact ? "items-center" : "flex-col",
+            "group flex min-w-0 gap-3 rounded-xl border border-border p-4 text-left outline-none transition-colors hover:border-foreground/25 hover:bg-state-hover focus-visible:ring-2 focus-visible:ring-ring",
+            item.recommended
+              ? "col-span-2 items-center gap-4 bg-muted/20 p-5"
+              : "flex-col items-start",
           )}
         >
           <span
             aria-hidden
-            className="rounded-lg border border-border bg-muted/40 p-2"
+            className={
+              item.recommended
+                ? "shrink-0 overflow-hidden rounded-xl border border-border"
+                : "rounded-lg bg-muted/40 p-2 text-muted-foreground"
+            }
           >
-            <Icon name={item.icon} className="size-5" />
+            {item.recommended ? (
+              <SoulPortrait
+                soul={{
+                  name: "Your next soul",
+                  emoji: "✨",
+                  look: { species: "robot", headwear: "none", palette: "mint" },
+                }}
+                className="size-12 sm:size-[72px]"
+              />
+            ) : (
+              <Icon name={item.icon} className="size-5" />
+            )}
           </span>
           <span className="min-w-0 flex-1 space-y-1">
             <span className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium">{item.title}</span>
-              {item.recommended ? (
-                <span className="text-xs text-muted-foreground">
-                  Recommended
-                </span>
-              ) : null}
+              <span
+                className={
+                  item.recommended
+                    ? "text-base font-semibold tracking-tight"
+                    : "text-sm font-medium"
+                }
+              >
+                {item.title}
+              </span>
             </span>
-            <span className="block text-xs leading-relaxed text-muted-foreground">
+            <span
+              className={cn(
+                "block leading-relaxed text-muted-foreground",
+                item.recommended ? "text-sm" : "text-xs",
+              )}
+            >
               {item.description}
             </span>
           </span>
-          {compact ? (
+          {item.recommended ? (
             <span aria-hidden className="text-muted-foreground">
-              <Icon name="ArrowRight" className="size-4" />
+              <Icon name="ChevronRight" className="size-4" />
             </span>
           ) : null}
         </button>
@@ -107,9 +133,9 @@ export function SoulLibraryCard({
         aria-current={selected ? "true" : undefined}
         onClick={onSelect}
         className={cn(
-          "group flex w-full items-start gap-3 rounded-xl border p-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+          "group flex w-full items-start gap-3 rounded-lg border px-3 py-3.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
           selected
-            ? "border-foreground/25 bg-state-active"
+            ? "border-border bg-state-active"
             : "border-transparent hover:border-border hover:bg-state-hover",
         )}
       >
@@ -124,6 +150,11 @@ export function SoulLibraryCard({
             <span className="min-w-0 flex-1 truncate text-sm font-semibold">
               {soul.name}
             </span>
+            {soul.archivedAt === null ? null : (
+              <span className="rounded border border-border px-1.5 py-0.5 text-xs text-muted-foreground">
+                Archived
+              </span>
+            )}
             {count === null || count === 0 ? null : (
               <span
                 className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-background/60 px-1.5 py-0.5 text-xs tabular-nums text-muted-foreground"
@@ -151,7 +182,7 @@ export function LibrarySkeleton() {
     <div
       role="status"
       aria-label="Loading souls"
-      className="grid min-h-0 flex-1 @3xl/souls:grid-cols-[19rem_minmax(0,1fr)]"
+      className="grid min-h-0 flex-1 @3xl/souls:grid-cols-[18rem_minmax(0,1fr)]"
     >
       <span className="sr-only">Loading your soul library…</span>
       <div
@@ -274,17 +305,17 @@ export function SoulProfileContent({
     !soul.principles.length &&
     !soul.boundaries.length;
   return (
-    <div className="space-y-7">
+    <div className="max-w-prose space-y-8">
       {!soul.role ? null : (
         <ProfileSection title="Job">
-          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed [overflow-wrap:anywhere]">
+          <p className="whitespace-pre-wrap break-words text-base leading-relaxed [overflow-wrap:anywhere]">
             {soul.role}
           </p>
         </ProfileSection>
       )}
       {!soul.personality ? null : (
         <ProfileSection title="Voice and temperament">
-          <div className="rounded-xl border border-border bg-muted/20 p-4">
+          <div className="border-l-2 border-border pl-4">
             <p className="whitespace-pre-wrap break-words text-sm leading-relaxed [overflow-wrap:anywhere]">
               {soul.personality}
             </p>
@@ -306,7 +337,7 @@ export function SoulProfileContent({
         </ProfileSection>
       )}
       {!soul.principles.length && !soul.boundaries.length ? null : (
-        <div className="grid gap-6 border-t border-border pt-6 @5xl/souls:grid-cols-2">
+        <div className="grid gap-8 border-t border-border pt-6 @5xl/souls:grid-cols-2">
           <ProfileRules title="Always" items={soul.principles} icon="Check" />
           <ProfileRules title="Never" items={soul.boundaries} icon="X" />
         </div>

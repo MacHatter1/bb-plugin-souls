@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { comparisonPrompt, evalSoul } from "./eval.ts";
-import type { Soul } from "./shared.ts";
+import { soulSchema, type Soul } from "./shared.ts";
 
 function soul(patch: Partial<Soul> = {}): Soul {
-  return {
+  return soulSchema.parse({
     id: "soul_test",
     name: "Ada",
     tagline: "Blunt reviewer",
@@ -17,11 +17,13 @@ function soul(patch: Partial<Soul> = {}): Soul {
     boundaries: ["Never approve a diff you did not read."],
     model: null,
     look: null,
+    defaultAllowDelegation: false,
+    allowHiring: false,
     origin: "manual",
     createdAt: "",
     updatedAt: "",
     ...patch,
-  };
+  });
 }
 
 test("a specific soul holds and writes a probe per rail", () => {

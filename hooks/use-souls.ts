@@ -31,7 +31,7 @@ export function useSignal(
 }
 
 /** The whole library; late reads cannot overwrite a newer signal or unmounted surface. */
-export function useSouls() {
+export function useSouls(includeArchived = false) {
   const rpc = useRpc<typeof rpcContract>();
   const [souls, setSouls] = useState<SoulSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -39,18 +39,20 @@ export function useSouls() {
   const refetch = useCallback(() => {
     const mine = ++ticket.current;
     setError(null);
-    rpc.call("souls_list").then(
-      (result) => {
-        if (mine === ticket.current) {
-          setSouls(result.souls);
-          setError(null);
-        }
-      },
-      (cause) => {
-        if (mine === ticket.current) setError(message(cause));
-      },
-    );
-  }, [rpc]);
+    rpc
+      .call("souls_list", includeArchived ? { includeArchived: true } : null)
+      .then(
+        (result) => {
+          if (mine === ticket.current) {
+            setSouls(result.souls);
+            setError(null);
+          }
+        },
+        (cause) => {
+          if (mine === ticket.current) setError(message(cause));
+        },
+      );
+  }, [rpc, includeArchived]);
   useEffect(() => {
     refetch();
     return () => {
@@ -111,12 +113,16 @@ type PendingSelection = {
   allowDelegation: boolean;
   /** When the choice lapses unused (epoch ms); null when nothing is pending. */
   expiresAt: number | null;
+  hiringOverride: boolean | null;
+  pinnedRevision: number | null;
 };
 
 const NO_PENDING: PendingSelection = {
   soul: null,
   allowDelegation: false,
   expiresAt: null,
+  hiringOverride: null,
+  pinnedRevision: null,
 };
 
 /** The soul chosen on the compose screen, waiting for the thread it will bind to. */
@@ -278,9 +284,13 @@ export function useSoulSelections() {
   return useSoulSelectionState().counts ?? EMPTY_COUNTS;
 }
 
-/** A full persona plus explicit loading/error state for the library. */
-export function useSoulResource(idOrName: string | null) {
+/** A full persona at the requested revision, or the latest when unpinned. */
+export function useSoulResource(
+  idOrName: string | null,
+  revision: number | null = null,
+) {
   const rpc = useRpc<typeof rpcContract>();
+  const key = idOrName === null ? null : JSON.stringify([idOrName, revision]);
   const [state, setState] = useState<{
     key: string | null;
     soul: Soul | null;
@@ -294,19 +304,23 @@ export function useSoulResource(idOrName: string | null) {
       return;
     }
     setState((current) =>
-      current.error === null ? current : { ...current, error: null },
+      current.error === null ? current : { key: null, soul: null, error: null },
     );
-    rpc.call("souls_get", { idOrName }).then(
+    const read =
+      revision === null
+        ? rpc.call("souls_get", { idOrName })
+        : rpc.call("souls_version", { soulId: idOrName, revision });
+    read.then(
       (result) => {
         if (ticket.current === mine)
-          setState({ key: idOrName, soul: result.soul, error: null });
+          setState({ key, soul: result.soul, error: null });
       },
       (cause) => {
         if (ticket.current === mine)
-          setState({ key: idOrName, soul: null, error: message(cause) });
+          setState({ key, soul: null, error: message(cause) });
       },
     );
-  }, [rpc, idOrName]);
+  }, [rpc, idOrName, revision, key]);
   useEffect(() => {
     refetch();
     return () => {
@@ -314,15 +328,19 @@ export function useSoulResource(idOrName: string | null) {
     };
   }, [refetch]);
   useSignal("souls-changed", refetch);
-  const current = state.key === idOrName;
+  const current = state.key === key;
   return {
     soul: current ? state.soul : null,
     error: current ? state.error : null,
+    loaded: idOrName !== null && current,
     refetch,
   };
 }
 
 /** Existing consumers only need the current persona, never a previous selection. */
-export function useSoul(idOrName: string | null) {
-  return useSoulResource(idOrName).soul;
+export function useSoul(
+  idOrName: string | null,
+  revision: number | null = null,
+) {
+  return useSoulResource(idOrName, revision).soul;
 }

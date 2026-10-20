@@ -169,6 +169,36 @@ test("@-mentioning a soul attaches its persona to that message", async () => {
   }
 });
 
+test("compaction mentions retain the thread's pinned persona after later edits", async () => {
+  const x = await setup();
+  try {
+    await x.harness.behavior.callRpc("souls_thread_set", { threadId: "thread-1", soulId: x.soul.id, pinnedRevision: 1 });
+    await x.harness.behavior.callRpc("souls_update", {
+      id: x.soul.id,
+      patch: { boundaries: ["LATEST_REVISION_ONLY"] },
+    });
+    x.log.add("thread/compacted");
+    await x.tick();
+    assert.equal((await x.reminder()).pending, true);
+
+    const restored = await x.mentions().resolve(`${x.soul.id}~thread-1`);
+    assert.match(restored.context, /compacted/);
+    assert.match(restored.context, /Never approve a change she has not run\./);
+    assert.doesNotMatch(restored.context, /LATEST_REVISION_ONLY/);
+
+    x.log.add("turn/input/accepted");
+    await x.tick();
+    const attached = await x.mentions().resolve(`${x.soul.id}~thread-1`);
+    assert.match(attached.context, /Never approve a change she has not run\./);
+    assert.doesNotMatch(attached.context, /LATEST_REVISION_ONLY/);
+
+    const global = await x.mentions().resolve(x.soul.id);
+    assert.match(global.context, /LATEST_REVISION_ONLY/, "an ordinary mention still attaches the current saved persona");
+  } finally {
+    await x.harness.lifecycle.dispose();
+  }
+});
+
 test("a thread with no soul is left alone after a compaction", async () => {
   const x = await setup();
   try {
