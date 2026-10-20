@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-souls",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Create reusable personas for BB threads, import agent files, and build specialist teams with permissions you control.",
   "type": "module",
   "license": "MIT",
