@@ -6,6 +6,8 @@ All notable changes to Souls are documented here. The format follows
 
 ## Unreleased
 
+## 0.1.1 - 2026-10-20
+
 ### Added
 
 - User-saved **Allow child threads by default** and **Allow hiring** settings,
