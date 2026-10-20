@@ -1,7 +1,7 @@
 {
   "name": "bb-plugin-souls",
   "version": "0.1.0",
-  "description": "Create agent personas through an AI-led interview, then run any thread as one.",
+  "description": "Create reusable personas for BB threads, import agent files, and build specialist teams with permissions you control.",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -10,7 +10,7 @@
   },
   "bb": {
     "name": "Souls",
-    "description": "Create agent personas through an AI-led interview, then run any thread as one.",
+    "description": "Create reusable personas for BB threads, import agent files, and build specialist teams with permissions you control.",
     "branding": {
       "icon": "Bot"
     },

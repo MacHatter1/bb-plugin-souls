@@ -8,6 +8,16 @@ All notable changes to Souls are documented here. The format follows
 
 ### Added
 
+- User-saved **Allow child threads by default** and **Allow hiring** settings,
+  with per-thread overrides. Permitted hiring saves specialists automatically;
+  new hires start with both permissions off.
+- Reusable team rosters, per-task hiring allowances, concurrent-child limits
+  and structured handoffs. Managed children validate model preferences, retain
+  inherited permissions and use stable assignment keys to avoid duplicate starts.
+- Task-only hires, explicit task completion, archival, promotion to permanent
+  and hiring/usage history. Queued or running child work prevents task closure.
+- Persona version history, comparison and restore, plus per-thread revision
+  pins. Restoring a persona preserves current permissions and team settings.
 - **Import agent file** on the Souls page: use a public GitHub file URL, upload
   or paste Codex TOML, Markdown with YAML frontmatter, or JSON/JSONC profiles.
   Supports common Claude Code, Cursor, Copilot, Gemini CLI, Qwen Code, OpenCode
@@ -22,6 +32,9 @@ All notable changes to Souls are documented here. The format follows
 
 ### Changed
 
+- Profile, editor and review tabs separate persona content, permissions,
+  team controls and appearance. Compact banners and expandable chat cards show
+  selection/version state; saved model preferences use BB's provider picker.
 - Redesigned the Souls library with scannable portrait cards, job/expertise search,
   usage filtering, name/recent sorting and a more readable profile. The title-bar
   New soul chooser consolidates creation methods; comparison and deletion use
@@ -35,6 +48,21 @@ All notable changes to Souls are documented here. The format follows
   BB's native mobile bottom sheets.
 - Voice and temperament now accepts up to 32,000 characters so imported agent
   instructions longer than the former 2,000-character limit are not cut.
+- Updated the README, import and team guides, and store listing for the
+  current UI, permission defaults, version pins and session evidence limits.
+  Refreshed library, team, picker and import screenshots with fictional data.
+
+### Fixed
+
+- Compaction recovery, the composer banner and chat card resolve the thread's
+  pinned persona instead of the latest saved revision.
+- Import review's **Back** action preserves each candidate's unsaved persona,
+  permission choices and team settings.
+- Managed spawn requests preserve the hierarchical parent relationship and
+  satisfy BB's request validation. Bound children use normal queue admission,
+  respect concurrency limits and leave pending CLI soul arms untouched.
+- Existing archived bindings remain editable, while archived souls remain
+  unavailable for new assignments.
 
 ## 0.1.0 - 2026-10-06
 

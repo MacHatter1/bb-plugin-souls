@@ -6,20 +6,19 @@
 
 ### Give your agents a persona you can reuse.
 
-Describe the agent you want in an interview, approve the draft, and run any BB
-thread as it.<br>
-One persona, many threads, and an edit reaches every one of them.
+Interview, import or write a persona, then choose it for any BB thread.<br>
+Build specialist teams with permissions you control.
 
 ![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue)
 ![bb ≥ 0.44](https://img.shields.io/badge/bb-%E2%89%A5%200.44-d946ef)
 ![Plugin SDK ≥ 0.5.29](https://img.shields.io/badge/plugin%20sdk-%E2%89%A5%200.5.29-86198f)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)
 
-[Features](#features) · [Install](#install) · [Where to find it](#where-to-find-it) · [Import](#import-an-agent-file) · [How it works](#how-it-works) · [Safety](#safe-by-default) · [CLI](#cli) · [Development](#development) · [Design notes](docs/DESIGN.md)
+[Features](#features) · [Install](#install) · [Where to find it](#where-to-find-it) · [How it works](#how-it-works) · [Safety](#safe-by-default) · [CLI](#cli) · [Development](#development)
 
 <br>
 
-<img src="docs/screenshots/soul-loaded.png" alt="The ::soul card for Hazel, a pixel-art owl, with her hard limits open, and the Running as Hazel banner over the composer" width="900">
+<img src="docs/screenshots/souls-page.png" alt="The Souls library with fictional personas and Hazel's Persona, Team and History tabs" width="900">
 
 </div>
 
@@ -30,124 +29,77 @@ One persona, many threads, and an edit reaches every one of them.
 
 ## The problem
 
-You want a thread to work like a particular colleague: a blunt reviewer for the
-payments service, say, who never touches migrations. So you paste the same
-paragraph into every new thread. It drifts between copies, a long one gets cut,
-and you cannot tell whether the agent took it on.
+You want a thread to work like a particular colleague: a careful reviewer who
+reads the tests first, or a specialist who knows when to ask for help. Pasting
+the same instructions into each thread leaves you maintaining separate copies.
 
-**Souls makes that paragraph a record you pick per thread.** An agent
-interviews you about the job, the voice and the hard limits, then shows you the
-draft. Nothing is saved until you approve it. After that, any thread can run as
-the soul, and an edit reaches every thread that uses it.
+**Souls gives each persona a saved identity.** Choose it from the composer's
+`+` menu. Threads can follow its latest persona or pin a revision, while you
+control whether it can hire specialists and start child threads.
 
-|  | Without Souls | With Souls |
+| | Without Souls | With Souls |
 | --- | :---: | :---: |
-| Reuse a persona across threads | ❌ paste it each time | ✅ pick it from the `+` menu |
-| Review an agent's draft before it is saved | ❌ | ✅ review card |
-| Edit once, every thread follows | ❌ | ✅ |
-| A long persona survives BB's 4,096-character instruction limit | ❌ | ✅ loaded in full |
-| The persona survives a context compaction | ❌ | ✅ put back automatically |
-| See that the persona loaded | ❌ | ✅ `::soul` card and session evidence |
-| Tell personas apart at a glance | ❌ | ✅ a pixel-art portrait each |
-| Start a spawned child as a persona | ❌ | ✅ `souls_arm_child` |
-| Let an authorized soul create specialists | ❌ | ✅ opt-in `souls_hire` |
-| Compare a persona with no persona | ❌ | ✅ when you ask |
+| Reuse a persona | Paste a copy each time | Choose a saved soul |
+| Review a proposed persona | Read an ordinary reply | Approve an editable review card |
+| Keep a long persona available | Maintain it by hand | Load it in full; restore it after compaction |
+| Choose which revision to use | Keep separate copies | Follow latest or pin a version |
+| Reuse a specialist team | Repeat roles and instructions | Save a roster, limits and handoffs |
 
 ## Features
-
-### Soul teams
-
-The soul editor's **Team, limits and handoffs** section saves preferred
-specialists, a maximum number of new hires per task, concurrent-child limits,
-and the brief/result requirements sent to children. Blank limits are unlimited.
-
-An authorized manager uses `souls_team` to inspect its roster and
-`souls_spawn_child` to assign work. The child starts with its soul already
-bound. Its saved model/provider/reasoning preference is checked on the parent's
-environment; an unavailable preference falls back visibly to the parent's
-settings. Permissions are inherited. Read-only assignments reuse the workspace;
-write assignments get a worktree based on the parent's branch. Stable assignment
-keys prevent duplicate starts after retries or reloads; uncertain starts retain
-their receipt for inspection.
-
-New hires default to **task-only**. `souls_finish_task` explicitly closes the
-manager thread's current task once children have no queued/running work, then
-archives its temporary hires. Permanent hires and hires you **Keep permanently**
-from their profile remain available. **Show archived** reveals archived souls;
-**Restore to library** makes them assignable again. Nothing is deleted by task
-cleanup. A new task receives a fresh hiring allowance; deleted hires still count
-against their original task.
-
-Profiles show **Hiring and thread history**, plus version history with persona
-comparison and restore. A restore saves a new revision and preserves current
-permissions and team settings. The thread picker offers **Persona version**
-and **Hiring in this thread**: pin a revision or follow latest, and override the
-soul's hiring setting for that thread. Pins freeze persona text while permissions
-and limits remain current.
-
-These features add no evaluator, service dependency or background model calls.
-Only explicitly assigned child work starts an agent run.
 
 <table>
 <tr>
 <td width="50%" valign="top">
 
-### 🎙️ Interviewed, not typed
+### 🎙️ Interview, import or write
 
-Ask any thread for a soul. The agent asks four to seven questions about the
-job, voice, expertise, principles and hard limits, with suggestions you can
-accept, then puts the draft on a review card.
+Ask for an interview and approve the draft, import an agent file, or use the
+manual editor. Imported instructions stay verbatim until you edit them.
 
 </td>
 <td width="50%" valign="top">
 
 ### 👾 A face for every soul
 
-Each soul gets its own pixel-art portrait, a human, robot, owl, cat or ghost,
-drawn from its emoji and kept stable. Pick it from the composer's `+` menu
-before a thread exists or mid-thread; the banner shows which soul is active.
+Recognise each persona by its pixel portrait. Search the library by name, job
+or expertise, see where a soul is used, and choose it before or during a thread.
 
 </td>
 </tr>
 <tr>
 <td valign="top">
 
-### 📜 Never cut
+### 📜 Persona history
 
-A thread's instructions carry a short pointer, and the agent loads the whole
-persona with `souls_get`, whatever its size. It then posts a `::soul` card, so
-you can see that it did.
+Load the full persona with `souls_get`, recover it after compaction, and compare
+or restore saved revisions. Pin a version for a thread that needs consistency.
 
 </td>
 <td valign="top">
 
-### 🧒 Children start in character
+### 🧒 Reusable specialist teams
 
-An agent calls `souls_arm_child` just before it spawns a child, and the child
-is bound to the soul before its first session. Enable **Allow hiring** on a
-soul to let it create missing specialists automatically with `souls_hire`, or
-reuse any suitable soul already in your library.
+Save preferred specialists, hiring and concurrency limits, and handoff
+instructions. Allow hiring to create missing specialists automatically;
+task-only hires archive when the manager explicitly finishes the task.
 
 </td>
 </tr>
 <tr>
 <td valign="top">
 
-### 🔐 Consent is yours to give
+### 🔐 Permission that stays yours
 
-A persona is not permission. Only you can let a soul spawn and coordinate
-child threads. Enable **Allow child threads by default** once in the soul editor
-or review card; new threads bound to that soul use it automatically. The thread
-picker's checkbox overrides that choice for one thread.
+Save **Allow child threads by default** and **Allow hiring** once per soul.
+The thread picker can override them. New hires start with both permissions off.
 
 </td>
 <td valign="top">
 
-### ⚖️ Compare before you trust it
+### ⚖️ Compare on the same task
 
-Run a soul against no soul, or against up to three other souls, on the same
-prompt and project model. A persona grade costs nothing; runs start only when
-you ask.
+Run a soul against no soul or up to three other souls, using the same prompt
+and project model. The local persona grade starts no runs; comparisons do.
 
 </td>
 </tr>
@@ -156,9 +108,9 @@ you ask.
 <div align="center">
 <table>
 <tr>
-<td align="center"><img src="docs/screenshots/review-card.png" alt="A review card for a new soul, Sable, with the pixel-art look the interviewing agent chose for her" width="290"><br><sub><b>Interviewed, then reviewed</b></sub></td>
-<td align="center"><img src="docs/screenshots/picker.png" alt="The soul picker opened from the + menu, with session evidence, the delegation checkbox and Apply from the next turn" width="290"><br><sub><b>Choose a soul… from the + menu</b></sub></td>
-<td align="center"><img src="docs/screenshots/souls-page.png" alt="The Souls library with Hazel, Orbit, Pip, Quill and Sable, and Hazel's job and voice open beside it" width="290"><br><sub><b>Every soul, its own face</b></sub></td>
+<td align="center"><img src="docs/screenshots/team.png" alt="Hazel’s saved permissions, specialist roster, task limits and handoff instructions" width="290"><br><sub><b>Reuse a specialist team</b></sub></td>
+<td align="center"><img src="docs/screenshots/picker.png" alt="The soul picker with a fictional persona, per-thread permissions and a version choice" width="290"><br><sub><b>Choose for this thread</b></sub></td>
+<td align="center"><img src="docs/screenshots/import.png" alt="Import review for a fictional Reviewer with Persona, Team and Appearance tabs" width="290"><br><sub><b>Bring an agent file</b></sub></td>
 </tr>
 </table>
 </div>
@@ -169,8 +121,8 @@ you ask.
 bb plugin install git:https://github.com/MacHatter1/bb-plugin-souls --yes
 ```
 
-That's it. Every thread gets the `souls` tools and skill straight away, and
-**Souls** appears in the sidebar.
+**Souls** appears in the sidebar, and the tools and bundled skill become
+available to threads.
 
 <details>
 <summary><b>Install from a local clone</b></summary>
@@ -186,117 +138,44 @@ bb plugin install path:$PWD --yes
 
 **Requirements**
 
-- bb **0.44+** (Plugin SDK 0.5.29+)
+- bb **0.44+** (Plugin SDK **0.5.29+**, as declared in the manifest).
 
 ## Where to find it
 
 | Where | What |
 | --- | --- |
-| **Souls** in the sidebar | A searchable portrait library with **All souls / In use** filters and name/recent sorting beside a readable profile. **New soul** offers an interview, agent-file import or manual editor. Compact panes open profiles separately; **All souls** returns to your search and scroll position. Compare and delete have separate, explicit dialogs. **Look** in the editor pins portrait traits; **Shuffle** rerolls the rest. |
-| **Choose a soul…** in the composer's `+` menu | The picker. Choose a soul, then **Apply soul**. It previews **What the next session receives** and offers *Apply from the next turn* and the delegation checkbox. In the new-thread composer, the soul is bound before the first turn. |
-| **A banner above the composer** | Shown while a soul is active, with a compact portrait that animates with what the thread is doing (thinking, writing, running a command, editing, reading, waiting for you) and says so in words: the soul the thread runs as (or your next thread starts as, with the minutes left to start it), whether it applies from the next session, and whether it can delegate. After a compaction it shows **Compacted** while the persona waits to go with your next message. Click the name for a peek at the job and hard limits; **Change** reopens the picker. |
-| **`@` a soul** in the composer | Attaches that soul's persona to your message, for the agent only. After a compaction the banner adds one for you. |
-| **A review card** in the thread | **Approve & create** (or **Approve changes**), **Request changes** with notes, or **Dismiss**. |
-| **A `::soul` card** in the chat | Posted once the agent has loaded its persona: a compact portrait card with its job and expandable hard limits, principles, expertise and voice. Its badge reports selection or version state, rather than claiming compliance. It says so if the soul was edited after the session started, or the thread has moved to another soul. **Open in Souls** goes to it in the library. |
-
-## Import an agent file
-
-Open **Souls → Import agent file** and choose **Upload file**, **Paste text**
-or **GitHub URL**. Drop or choose a file, paste a definition, or provide a public
-GitHub link. Click **Review draft** (or **Fetch and review** for GitHub).
-The format is detected from the filename or contents; **Import options** lets
-you override it. Supply an optional filename when pasting an unnamed agent.
-
-<div align="center">
-
-<img src="docs/screenshots/import.png" alt="The import review for a fictional Codex agent named Reviewer. The instructions are kept verbatim, and nothing is saved yet." width="900">
-
-</div>
-
-| Format | Supported definitions |
-| --- | --- |
-| TOML (`.toml`) | Codex agent files with `developer_instructions`. |
-| Markdown (`.md`, `.agent.md`) | YAML-frontmatter agent files from Claude Code, Cursor, Copilot, Gemini CLI, Qwen Code, OpenCode and Kiro. The body supplies the instructions. |
-| JSON / JSONC (`.json`, `.jsonc`) | Inline `prompt` profiles such as Kiro's, OpenCode's `agent` configuration object, and Claude Code's `--agents` name-to-definition dictionary. Comments and trailing commas are supported. |
-
-For configurations with multiple agents, search or select an agent card to
-preview its instructions, then click **Review agent**. Definitions without valid
-inline prompts are skipped with warnings; a file with none reports an error.
-Configurations are limited to 50 definitions.
-
-The review editor puts **Agent instructions** first and previews what the agent
-will see. **Customize this soul** opens appearance and optional persona fields;
-**Import details** explains ignored settings and warnings. **Back** retains the
-source and each agent's unsaved edits. Changing the source or import options
-starts a new preview.
-
-Nothing is saved until you click **Create soul**; cancelling leaves the library
-unchanged. Only the selected agent is created, not the whole configuration.
+| **Souls** in the sidebar | Search and filter the library. Open **Persona**, **Team** or **History**; edit, compare, archive, restore or keep a temporary hire. **New soul** offers an interview, import or manual editor. |
+| **Choose a soul…** in the composer's `+` menu | Choose a persona, per-thread permissions and revision. **Apply from the next turn** releases an idle runtime; a new thread is bound before its first session. |
+| **Banner above the composer** | See the selected soul and session state. The portrait reflects thread activity; click the name for details or **Change** to reopen the picker. |
+| **`@` a soul** in the composer | Attach its persona to a message. Compaction recovery can add this attachment for your next message. |
+| **Review card** in the thread | Approve a proposed persona or edit, request changes, or dismiss it. Deletion has a separate confirmation. |
+| **`::soul` card** in the chat | An agent posts this after loading its persona. Expand its job, limits, principles, expertise and voice; the badge reports selection or version state. |
 
 <details>
-<summary><b>Formats, fields and limits</b></summary>
+<summary><b>Import an agent file</b></summary>
 
-### Codex TOML
+### Import an agent file
 
-```toml
-name = "Reviewer"
-description = "Review changes for correctness."
-model = "gpt-5"
-model_reasoning_effort = "high"
-developer_instructions = """
-Read the code before suggesting changes.
-Report only findings you can substantiate.
-"""
-```
+Open **Souls → Import agent file**. Upload or paste Codex TOML, Markdown with
+YAML frontmatter, or JSON/JSONC profiles, or provide a public GitHub file URL.
+Select an agent if the file contains several, review the draft, then click
+**Create soul**. **Back** keeps each candidate's unsaved edits and team settings.
 
-- `name` becomes the soul's name; if absent, the uploaded or remote filename supplies it.
-- `description` becomes the job, and the tagline when it fits (160 characters).
-- `developer_instructions` is required and preserved verbatim in **Voice and
-  temperament**, up to 32,000 characters. No model rewrites or splits the prompt.
-- `model` and `model_reasoning_effort` become an advisory Codex model preference.
+See [formats, examples and limits](docs/IMPORTING.md).
 
-### Markdown with YAML frontmatter
+</details>
 
-```markdown
----
-name: Reviewer
-description: Review changes for correctness.
-model: inherit
----
+<details>
+<summary><b>Set up a team, permissions and persona versions</b></summary>
 
-Read the code before suggesting changes.
-Report only findings you can substantiate.
-```
+Use **Edit soul → Team** for permissions, the BB provider picker, roster,
+limits and handoffs. Blank limits are unlimited; zero blocks new hires or
+child admission for that limit. The thread picker overrides delegation and
+hiring, and can pin a persona revision. Pins keep current permissions and team
+limits. **History** compares or restores persona revisions without restoring
+old permissions.
 
-The Markdown body is preserved verbatim in **Voice and temperament**, including
-blank lines and indentation. JSON imports preserve the inline `prompt` string.
-Both use `name` and `description` like TOML; Markdown names derived from
-`reviewer.agent.md` become `reviewer`. Optional `model`, `effort` and
-`reasoningEffort` values are advisory preferences without a guessed BB provider.
-`model: inherit` leaves the current model unchanged. Review harness-specific
-model names and reasoning levels in the editor.
-
-Other settings are listed as not imported. Sandbox, approval, tool, hook,
-executor and MCP settings cannot grant permissions or delegation consent.
-Referenced files are never read or fetched. JSON profiles whose entire prompt
-is a file reference report an error; embedded references produce a warning.
-Use an agent with inline instructions, not Codex's top-level `config.toml`.
-Plain repository instructions such as `AGENTS.md` and frontmatter-only fork
-restriction profiles are not agent definitions.
-
-GitHub links can use `https://github.com/owner/repo/blob/ref/path/agent.md`
-or `https://raw.githubusercontent.com/owner/repo/ref/path/agent.md`;
-`.toml`, `.md`, `.agent.md`, `.json` and `.jsonc` files are supported.
-Downloads are public-only, time out after 10 seconds, and never follow redirects
-or forward URL credentials/query tokens. For private repositories, upload or
-paste the file instead.
-
-Uploads and downloads are limited to 128,000 bytes, pasted definitions to
-128,000 characters, and individual prompts to 32,000 characters. Invalid
-syntax, duplicate keys, oversized fields and duplicate soul names report
-errors rather than silently cutting content or overwriting an existing soul.
-YAML aliases and unsupported tags are rejected. Imports are saved as manually
-created souls and do not bind or start a thread.
+See [team setup and task lifecycle](docs/TEAMS.md).
 
 </details>
 
@@ -304,100 +183,71 @@ created souls and do not bind or start a thread.
 
 ```mermaid
 sequenceDiagram
-    autonumber
     participant You
-    participant Agent
     participant Souls
     participant BB
-
-    You->>Agent: "make me a soul for reviewing PRs"
-    Agent->>You: interview, a few questions at a time
-    Agent->>Souls: souls_propose(draft)
-    Souls->>You: review card
-    You->>Souls: Approve, and run this thread as it
-    Souls->>Souls: save the soul, bind the thread
-    BB->>Souls: configure(thread) as the next session starts
-    Souls-->>BB: a pointer to the persona, plus tools and skill
+    participant Agent
+    You->>Souls: Save a persona and choose it for a thread
+    BB->>Souls: Configure the next session
+    Souls-->>BB: Persona pointer and effective permissions
     Agent->>Souls: souls_get(id)
-    Souls-->>Agent: the full persona and the ::soul line
-    Agent->>You: ::soul card, then a reply in character
+    Souls-->>Agent: Full persona at the selected revision
+    Agent->>You: Persona card and reply
+    BB->>Souls: Context compacted
+    Souls-->>Agent: Restore persona during tool work or with the next message
 ```
 
-- **A pointer, not a prompt.** BB cuts a plugin's instructions at 4,096
-  characters, so a thread is given the soul's name, its id and an instruction
-  to load the rest with `souls_get`. The persona itself is never cut.
-- **It applies at the next session.** A live agent session keeps the
-  instructions it started with. A soul takes effect in a new thread, after
-  *Apply from the next turn* releases an idle runtime, or when BB next starts
-  the session. `souls_select` returns the persona so an agent can adopt it
-  straight away.
-- **Bound before the first turn.** A soul picked on the compose screen waits
-  five minutes for the next thread you start in the app, and a child arm waits
-  five minutes for the spawn. A dispatch hook binds either before the first
-  session.
-- **Evidence, not guesses.** `bb souls status` and the picker separate a
-  selected soul from one recorded in a session, and show **unknown** when BB
-  has no record rather than claim it applied.
-- **Compaction-proof.** A compaction summarises away the persona the agent
-  loaded, so Souls puts it back. If the agent is working with its tools, in
-  that turn or a later one, the persona is steered into the turn. Otherwise it
-  goes with your next message as a **Hazel's persona** pill you can see, and
-  remove. Remove it and send, and once that turn ends Souls stops offering;
-  the agent's instructions still tell it to reload its persona.
-- **One store.** Souls live in the plugin's own SQLite database. The page, the
-  picker, the CLI and the agent tools all use it, and open views refresh when
-  any of them writes.
+- **Full persona.** The session receives a short pointer within BB's
+  4,096-character instruction limit. `souls_get` returns the full persona,
+  using the thread's pinned revision when present.
+- **Session timing.** A live session keeps its starting instructions. A
+  change applies when the next session starts; **Apply from the next turn**
+  releases only an idle runtime.
+- **Before child work.** Managed children bind their soul before queue
+  admission. CLI arms and new-thread choices last five minutes; each binds
+  one eligible child or app-created thread.
+- **After compaction.** Souls restores the persona during tool work or
+  attaches it to your next message as a removable pill. Recovery starts no
+  turn of its own.
+- **Local records.** The plugin's SQLite store holds personas, versions,
+  bindings, task receipts and hiring history. Open views refresh on changes.
 
-Invariants, session semantics, evidence and comparisons are covered in
-**[docs/DESIGN.md](docs/DESIGN.md)**.
+Session evidence records persona injection. The card and local grade do not
+measure whether replies or actions stay in character; there is no drift
+monitor. See the [design notes](docs/DESIGN.md) for the evidence boundaries.
 
 ## Safe by default
 
-- ✋ **Hiring is opt-in; edits and deletes need approval.** Creation normally
-  waits on a review card. Enable **Allow hiring** in a soul's editor or review
-  card to let threads running as it save new specialists automatically.
-  New hires start with hiring and child-thread defaults off. Hiring does not
-  authorize spawning. An agent's edits and deletes always wait on a card. An
-  edit reaches every thread running that soul, so text an agent reads in one
-  thread cannot quietly rewrite the persona for the others. An agent binds only
-  its own thread and the children it spawned, and `bb souls create`, `update`
-  and `delete` refuse when an agent runs them inside a thread.
-- 🔐 **A persona is not permission.** Delegation consent comes only from the
-  user's saved soul default or a per-thread checkbox. Soul defaults start off;
-  enabling one applies to new bindings, while existing thread choices stay as
-  they are. An explicit unchecked thread checkbox overrides an enabled default.
-  Children use their chosen soul's own default, not their parent's thread
-  override; side chats do not inherit consent. Imported definitions and agent
-  drafts cannot grant it, and it changes no other approval or permission mode.
-- ⏸️ **A working thread is never stopped.** *Apply from the next turn* and
-  `--now` release only an idle runtime. A busy thread keeps its persona until
-  its session is next started.
-- 💸 **No model runs you did not ask for.** Opening the Souls page or running
-  `bb souls eval` without `--run` starts nothing, and putting a persona back
-  after a compaction never starts a turn of its own.
-- 🛡️ **A persona cannot override the rules.** Every rendered persona says it
-  never overrides BB's rules, your instructions or safety, and the persona
-  grade marks a soul that tries as *thin*.
-- 🎯 **Your choice goes to your thread.** A soul picked on the compose screen
-  binds only to a thread you start in the app, never to a background thread
-  another plugin starts, or one started from a script or another thread.
-- 🧯 **Your message always goes out.** If the plugin's hook or configuration
-  fails, it logs and steps aside rather than blocking the turn.
+- 🔐 **You grant authority.** Soul defaults start off. Delegation defaults
+  apply to new bindings; existing thread choices stay put. Hiring follows
+  the current soul setting unless you override it for that thread. Tools,
+  drafts and imports cannot grant either permission.
+- ✋ **Changes stay reviewable.** Normal creation waits for approval. Your
+  **Allow hiring** permission allows automatic specialist creation. Edits and
+  deletes still need a review card; new hires cannot hire or delegate by default.
+- 🧒 **Children keep inherited permissions.** Managed starts preserve the
+  parent relationship, bind before dispatch and queue excess work under the
+  saved concurrency limit. Model preferences have a visible fallback.
+- 💸 **Runs have a purpose.** Browsing, local grading and persona recovery
+  make no model calls. Comparisons require an explicit request; authorised
+  child assignments start their own runs.
+- 🛡️ **Persona text has limits.** It never overrides BB's rules or your
+  instructions. Imports omit tool, sandbox and MCP settings. A read-only child
+  brief is an instruction, not a filesystem permission boundary.
 
 ## CLI
 
-`bb souls <command>`. `<soul>` is an id, a name or a slug (a slug two souls
-share names neither). Inside a thread, `--thread` defaults to that thread and
-may name only that thread or a child it spawned, and `create`, `update` and
-`delete` refuse: there an agent uses the tools, which ask you first. Read
-commands take `--json`.
+Use a soul's id, name or unambiguous slug. Inside a thread, selection defaults
+to that thread and can also target its own children. Read commands accept
+`--json`.
 
 ```sh
-bb souls list                         # every soul
-bb souls show <soul>                  # the full persona, and the pointer a thread is given
-bb souls select <soul> --now          # run this thread as a soul from its next turn
+bb souls list                         # available souls
+bb souls show Hazel                   # full persona and session pointer
+bb souls select Hazel --now           # release an idle runtime for the next turn
 bb souls status                       # selection, consent and session evidence
-bb souls eval <soul> --run            # compare with no soul on the same prompt
+bb souls eval Hazel                   # local grade and suggested prompt; no runs
+bb souls eval Hazel --run             # start a comparison when requested
 ```
 
 <details>
@@ -405,66 +255,63 @@ bb souls eval <soul> --run            # compare with no soul on the same prompt
 
 | Command | Does |
 | --- | --- |
-| `list` | List souls. |
-| `show <soul>` | One soul, its full persona and the pointer a thread is given. |
-| `create <name> [--data <soul-json>] [--tagline …] [--role …] [--emoji …] [--personality …] [--expertise a,b] [--principles a,b] [--boundaries a,b]` | Create a soul from flags or a JSON draft. Outside a thread only. |
-| `update <soul> --data <patch-json>` | Change a soul's fields. Lists replace the whole list. Outside a thread only. |
-| `delete <soul>` | Delete a soul and unbind it from every thread. Outside a thread only. |
-| `current [--thread <id>]` | The soul a thread runs as. |
-| `status [--thread <id>]` | Selection, delegation consent and session injection evidence. |
-| `select <soul> [--thread <id>] [--now \| --next-child]` | Bind a soul to a thread. `--now` releases an idle runtime; `--next-child` arms the next child this thread spawns instead. |
+| `list` | List unarchived souls. |
+| `show <soul>` | Read the saved persona and its session pointer. |
+| `create <name> [--data <soul-json>] [--tagline …] [--role …] [--emoji …] [--personality …] [--expertise a,b] [--principles a,b] [--boundaries a,b]` | Create from flags or JSON, outside a thread only. |
+| `update <soul> --data <patch-json>` | Change persona fields, outside a thread only. Lists replace the whole list. |
+| `delete <soul>` | Delete and unbind everywhere, outside a thread only. |
+| `current [--thread <id>]` | Read a thread's selected persona. |
+| `status [--thread <id>]` | Read selection, delegation consent and session evidence. |
+| `select <soul> [--thread <id>] [--now \| --next-child]` | Bind a soul; `--now` releases an idle runtime, while `--next-child` arms one child. |
 | `unbind [--thread <id>]` | Clear a thread's soul. |
-| `threads` | Threads and the souls they run as. |
-| `eval [soul]` | Grade every soul, or show one soul's grade and the prompt a comparison would send. Starts nothing. |
-| `eval <soul> --run [--prompt <text>] [--against <soul>] [--no-baseline] [--project <id>]` | Start a comparison. `--against` can repeat, up to three souls. |
-| `eval show [id]` | The replies so far for the latest or a given comparison. Does not wait or judge. |
+| `threads` | List selected threads and their souls. |
+| `eval [soul]` | Grade locally, or show one persona's suggested comparison prompt. Starts no work. |
+| `eval <soul> --run [--prompt <text>] [--against <soul>] [--no-baseline] [--project <id>]` | Start a comparison; `--against` can repeat for up to three souls. |
+| `eval show [id]` | Read replies so far for the latest or a given comparison. |
+
+Inside a thread, use `souls_hire` for permitted hiring or the review tools for
+creation, edits and deletion. The CLI cannot grant delegation or hiring.
 
 </details>
 
-**Agent tools:** `souls_list()`, `souls_get({ idOrName })`,
-`souls_eval({ idOrName, run, prompt, against, baseline, projectId })`,
-`souls_propose({ draft, summary, openQuestions, existingId })`,
-`souls_hire({ draft })`,
-`souls_team()`, `souls_spawn_child({ soulId, key, task, access })`, `souls_finish_task()`,
-`souls_update({ idOrName, patch, summary })`, `souls_delete({ idOrName })`,
-`souls_select({ soulId, threadId })` and `souls_arm_child({ soulId })`. The
-bundled [skill](skills/souls/SKILL.md) teaches agents to interview you before
-proposing a soul, to hire specialists when permitted, to load their persona
-when a soul is active, and to arm a soul only when it fits the child they spawn.
+**Agent tools:** `souls_list`, `souls_get`, `souls_eval`, `souls_propose`,
+`souls_hire`, `souls_team`, `souls_spawn_child`, `souls_finish_task`,
+`souls_update`, `souls_delete`, `souls_select` and `souls_arm_child`.
+The bundled [skill](skills/souls/SKILL.md) covers interviews, permissions,
+hiring, child assignments, persona loading and task cleanup.
 
 ## Development
 
 ```sh
 npm install
-npm test                           # node:test, no model calls
+npm test                           # node:test; no model calls
 npm run typecheck
-npm run test:bundle                # build + exercise the deployed server artifact
+npm run test:bundle                # build and exercise the deployed server
 bb plugin install path:$PWD --yes
-bb plugin dev                      # rebuild and reload on every save
+bb plugin dev                      # rebuild and reload on saves
 ```
 
-```
-server.ts   RPC, agent tools, configure, the dispatch hook and the CLI
-store.ts    the synchronous SQLite store
-shared.ts   the soul model and its two renderers: persona and pointer
-eval.ts     the persona grade and comparison records
-portrait.ts the 24×24 pixel-art portrait generator
-motion.ts   what a thread is doing, as an animation for the banner portrait
-app.tsx     slot registration: Souls page, + menu row and banner, review and delete cards, ::soul embed
-components/ the UI
-hooks/      RPC reads kept current by realtime signals
-skills/     the bundled agent skill and its interview protocol
-docs/       logo, screenshots and design notes
+```text
+server.ts       RPC, tools, configuration, compaction and CLI
+team-server.ts  model selection, managed children and queue admission
+store.ts        SQLite storage, migrations, versions and task records
+shared.ts       schemas and persona, pointer and handoff renderers
+soul-import*.ts agent-file parsing and bounded GitHub downloads
+eval.ts         local persona grade and comparison records
+portrait.ts     pixel portraits; motion.ts maps activity to animation
+app.tsx         BB slots; components/ and hooks/ implement the UI
+skills/         the bundled skill and interview protocol
+docs/           guides, design notes, logo and fictional-data screenshots
 ```
 
-**Tests** cover the renderers, the persona grade and the portraits with unit
-tests, and the server through the SDK's fake plugin host: review cards for
-interviews and edits, permission-gated hiring, child arming, session evidence,
-delegation consent, comparison runs, compaction reminders and thread activity.
-None of them call a model.
+**Tests** cover pure parsers, portraits and renderers, plus server behaviour
+through the SDK's fake plugin host: review cards, delegation and hiring,
+versions, task lifecycle, child admission, compaction and session evidence.
+The bundle smoke check loads the built server and parses imports. No test calls
+a model. See [design invariants](docs/DESIGN.md) and [UI notes](docs/UI.md).
 
-`PLUGIN_OVERVIEW.md` is the store listing. Keep it in step with
-`bb.description` in `package.json`.
+`PLUGIN_OVERVIEW.md` is the store listing. Keep it in step with the README,
+`bb.description` in `package.json` and the bundled skill.
 
 ## Licence
 
