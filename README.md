@@ -26,6 +26,7 @@ Build specialist teams with permissions you control.
 
 > [!NOTE]
 > The screenshots are real BB captures populated with fictional demo data.
+> Unrelated library entries and usage totals are hidden.
 
 ## The problem
 
@@ -108,7 +109,7 @@ and project model. The local persona grade starts no runs; comparisons do.
 <div align="center">
 <table>
 <tr>
-<td align="center"><img src="docs/screenshots/team.png" alt="Hazel’s saved permissions, specialist roster, task limits and handoff instructions" width="290"><br><sub><b>Reuse a specialist team</b></sub></td>
+<td align="center"><img src="docs/screenshots/team.png" alt="The Team editor with delegation, hiring, model preferences and specialist controls" width="290"><br><sub><b>Configure a specialist team</b></sub></td>
 <td align="center"><img src="docs/screenshots/picker.png" alt="The soul picker with a fictional persona, per-thread permissions and a version choice" width="290"><br><sub><b>Choose for this thread</b></sub></td>
 <td align="center"><img src="docs/screenshots/import.png" alt="Import review for a fictional Reviewer with Persona, Team and Appearance tabs" width="290"><br><sub><b>Bring an agent file</b></sub></td>
 </tr>
